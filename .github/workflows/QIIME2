@@ -1,0 +1,131 @@
+Activar qiime2
+conda activate qiime2-2022.2
+
+#Analizaremos la calidad de las muestras
+./fastqc
+
+#instalar cutadapt
+
+cutadapt --version
+#Para los reverse primero hacemos un bucle
+for i in *_L001_R1_001.fastq; do name=(`basename "$i" .fastq`); cutadapt -a
+GGCTGACTGACT -o ${name}_trimmed.fastq ${name}.fastq; done
+#Para los forward luego
+for i in *_L001_R2_001.fastq; do name=(`basename "$i" .fastq`); cutadapt -a CCAATTACCATA
+-o ${name}_trimmed.fastq ${name}.fastq; done
+
+#importar datos a qiime2
+qiime tools import \
+--type 'SampleData[PairedEndSequencesWithQuality]' \
+--input-path manifest.tsv \
+--output-path demuxPrueba \
+--input-format PairedEndFastqManifestPhred33V2
+#visualizar la calidad de las muestras
+qiime demux summarize \
+--i-data demuxPrueba.qza \
+--o-visualization demuxPrueba.qzv
+
+#denoise
+qiime dada2 denoise-paired \
+--i-demultiplexed-seqs demuxPrueba.qza \
+--p-trim-left-f 0 \
+--p-trim-left-r 7 \
+--p-trunc-len-f 242 \
+--p-trunc-len-r 180 \
+--o-table table.qza \
+--o-representative-sequences rep_seqs.qza \
+--o-denoising-stats denoising_stats.qza
+
+#secuencias repetitivas
+qiime feature-table summarize \
+--i-table table.qza \
+--o-visualization table.qzv \
+--m-sample-metadata-file sample-metadata.tsv
+
+
+#visualizar las secuencias repetitivas
+qiime feature-table tabulate-seqs \
+--i-data rep_seqs.qza \
+--o-visualization rep_seqs.qzv
+
+#para visualizar qzv el código es qiime tools view archivo.qzv
+
+
+#crear árboles
+qiime phylogeny align-to-tree-mafft-fasttree \
+--i-sequences rep-seqs.qza \
+--o-alignment aligned-rep-seqs.qza \
+--o-masked-alignment masked-aligned-rep-seqs.qza \
+--o-tree unrooted-tree.qza \
+--o-rooted-tree rooted-tree.qza
+
+#medidas de diversidad
+qiime diversity core-metrics-phylogenetic \
+--i-phylogeny rooted-tree.qza \
+--i-table table.qza \
+--p-sampling-depth 9000 \
+--m-metadata-file sample-metadata.tsv \
+--output-dir core-metrics-results
+
+qiime diversity alpha-group-significance \
+--i-alpha-diversity core-metrics-results/faith_pd_vector.qza \
+--m-metadata-file sample-metadata.tsv \
+--o-visualization core-metrics-results/faith-pd-group-significance.qzv
+qiime diversity alpha-group-significance \
+--i-alpha-diversity core-metrics-results/evenness_vector.qza \
+--m-metadata-file sample-metadata.tsv \
+--o-visualization core-metrics-results/evenness-group-significance.qzv
+
+# Rarefaction plot
+qiime diversity alpha-rarefaction \
+--i-table rarefied_table.qza \
+--p-max-depth 9000 \
+--m-metadata-file sample-metadata.tsv \
+--p-steps 25 \
+--o-visualization alpha_rarefaction.qzv
+
+#Extraer lecturas de referencia
+qiime feature-classifier extract-reads \
+--i-sequences silva-138-99-seqs.qza \
+--p-f-primer GCTGACTGACT \
+--p-r-primer CCAATTACCATA \
+--p-trunc-len 300 \
+--o-reads ref-seqs99-300.qza
+
+#Train
+qiime feature-classifier fit-classifier-naive-bayes \
+--i-reference-reads ref-seqs99-300.qza \
+--i-reference-taxonomy silva-138-99-tax.qza \
+--o-classifier silva-138-99-nb-classifier300.qza
+
+#qiime feature-classifier classify-sklearn \
+--i-classifier silva-138-99-nb-classifier300.qza \
+--i-reads rep_seqs.qza \
+--o-classification taxonomy300.qza
+
+#Visualizar
+qiime metadata tabulate \
+--m-input-file taxonomy300.qza \
+--o-visualization taxonomy300.qzv
+
+#Gráficas
+qiime taxa barplot \
+--i-table table.qza \
+--i-taxonomy taxonomy300.qza \
+--m-metadata-file sample-metadata.tsv \
+--o-visualization taxa_bar_plots300.qzv
+
+#Exportar
+qiime taxa collapse \
+--i-table table.qza \
+--i-taxonomy taxonomy300.qza \
+--p-level 7 \
+--o-collapsed-table genus7.qza
+
+qiime tools export \
+--input-path genus7.qza \
+--output-path exported
+biom convert -i feature-table.biom -o genus7.tsv --to-tsv
+
+#Este es el código de base, modificando los parámetros y los input hemos realizado todos los intentos
+#En el último paso se repite para cada uno de los nivele taxonómicos
