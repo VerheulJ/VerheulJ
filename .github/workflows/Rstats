@@ -1,0 +1,293 @@
+# Setup ----
+library(tidyverse)
+library(data.table)
+library(ggpubr)
+
+setwd("~/ubicacion")  # Change this to your data directory
+taxon <- c("Class")  # Change this to analyse the taxon of interest
+
+# Functions ----
+
+get_pvalue_otu_age <- function(otu_id, taxon_table) {
+  #' Get the Wilcoxon p-value of a specified OTU per age
+  #' 
+  #' Returns a data.table with the gene name and the p-value so it can be
+  #' merged a posteriori.
+  otu8 <- taxon_table[OTU_ID == otu_id][age == 8]$count_normalised
+  otu12 <- taxon_table[OTU_ID == otu_id][age == 12]$count_normalised
+  
+  if (length(otu8) == 0){
+    return(data.table(
+      OTU_ID = otu_id,
+      mean_8 = NA,
+      mean_12 = NA,
+      p_value = NA
+    ))
+  } else if(length(otu12) == 0){
+    return(data.table(
+      OTU_ID = otu_id,
+      mean_8 = NA,
+      mean_12 = NA,
+      p_value = NA
+    ))
+  } else {
+    p_value <- wilcox.test(otu8, otu12) %>% pluck("p.value")
+    
+    p_value_table <- data.table(
+      OTU_ID = otu_id,
+      mean_8 = mean(otu8),
+      mean_12 = mean(otu12),
+      p_value = p_value
+    )
+    
+    return(p_value_table)
+  }
+  
+}
+
+get_pvalue_otu_sex <- function(otu_id, taxon_table) {
+  #' Get the Wilcoxon p-value of a specified OTU per gender
+  #' 
+  #' Returns a data.table with the gene name and the p-value so it can be
+  #' merged a posteriori.
+  otu_female <- taxon_table[OTU_ID == otu_id][gender == "Female"]$count_normalised
+  otu_male <- taxon_table[OTU_ID == otu_id][gender == "Male"]$count_normalised
+  
+  if (length(otu_female) == 0){
+    return(data.table(
+      OTU_ID = otu_id,
+      mean_female = NA,
+      mean_male = NA,
+      p_value = NA
+    ))
+  } else if(length(otu_male) == 0){
+    return(data.table(
+      OTU_ID = otu_id,
+      mean_female = NA,
+      mean_male = NA,
+      p_value = NA
+    ))
+  } else {
+    p_value <- wilcox.test(otu_female, otu_male) %>% pluck("p.value")
+    
+    p_value_table <- data.table(
+      OTU_ID = otu_id,
+      mean_female = mean(otu_female),
+      mean_male = mean(otu_male),
+      p_value = p_value
+    )
+    
+    return(p_value_table)
+  }
+  
+}
+
+get_wilcox_otu_genotype <- function(otu_id, taxon_table) {
+  #' Get the Wilcoxon p-value of a specified OTU per genotype
+  #' 
+  #' Returns a data.table with the gene name and the p-value so it can be
+  #' merged a posteriori.
+  hz <- taxon_table[OTU_ID == otu_id][genotype == "HZ"]$count_normalised
+  htz <- taxon_table[OTU_ID == otu_id][genotype == "HTZ"]$count_normalised
+  wt <- taxon_table[OTU_ID == otu_id][genotype == "WT"]$count_normalised
+  
+  if (length(hz) == 0){
+    return(data.table(
+      OTU_ID = otu_id,
+      mean_hz = NA,
+      mean_htz = NA,
+      mean_wt = NA,
+      p_value_hz_htz = NA,
+      p_value_hz_wt = NA,
+      p_value_htz_wt = NA
+    ))
+  } else if(length(htz) == 0){
+    return(data.table(
+      OTU_ID = otu_id,
+      mean_hz = NA,
+      mean_htz = NA,
+      mean_wt = NA,
+      p_value_hz_htz = NA,
+      p_value_hz_wt = NA,
+      p_value_htz_wt = NA
+    ))
+  } else if(length(wt) == 0){
+    return(data.table(
+      OTU_ID = otu_id,
+      mean_hz = NA,
+      mean_htz = NA,
+      mean_wt = NA,
+      p_value_hz_htz = NA,
+      p_value_hz_wt = NA,
+      p_value_htz_wt = NA
+    ))
+  } else {
+    p_hz_htz <- wilcox.test(hz, htz) %>% pluck("p.value")
+    p_hz_wt <- wilcox.test(hz, wt) %>% pluck("p.value")
+    p_htz_wt <- wilcox.test(htz, wt) %>% pluck("p.value")
+    
+    p_value_table <- data.table(
+      OTU_ID = otu_id,
+      mean_hz = mean(hz),
+      mean_htz = mean(htz),
+      mean_wt = mean(wt),
+      p_value_hz_htz = p_hz_htz,
+      p_value_hz_wt = p_hz_wt,
+      p_value_htz_wt = p_htz_wt
+    )
+    
+    return(p_value_table)
+  }
+  
+}
+
+# Load data ----
+sample_info <- read_tsv("sample-metadata.tsv") %>% 
+  mutate(gender = as.factor(gender),
+         genotype = as.factor(genotype)) %>% 
+  filter(.data[["sample-id"]] != "4_CRT")
+
+genus_files <- list.files(pattern = "genus")
+
+taxa_tabs <- map(genus_files, fread) %>% 
+  map(rename, OTU_ID = "#OTU ID")
+
+taxa <-
+  c("Kingdom",
+    "Phylum",
+    "Class",
+    "Order",
+    "Family",
+    "Genus",
+    "Species")
+
+names(taxa_tabs) <- taxa
+
+# Taxon selection ----
+
+taxon_str <- paste0(str_extract(taxon, "[:upper:]") %>% tolower, "__")
+
+my_taxon <- taxa_tabs[[taxon]]
+
+# Table preparation ----
+
+longer_table <- pivot_longer(
+  my_taxon,
+  cols = 2:ncol(my_taxon),
+  names_to = "sample",
+  values_to = "count"
+)
+
+longer_table <- merge(longer_table,
+                      sample_info,
+                      by.x = "sample",
+                      by.y = "sample-id") %>%
+  filter(count != 0) %>%
+  as.data.table
+
+# Filter out OTUs not deep enough and retrieve deepest taxonomic level
+longer_table <- longer_table[str_detect(OTU_ID, taxon_str)]
+longer_table[, OTU_ID := str_extract(OTU_ID, "[^_]+$")]
+longer_table <- longer_table %>% drop_na(OTU_ID)
+
+# Normalise counts
+longer_table[, count_normalised := count / sum(count)]
+
+# Analysis (HTZ, HZ and WT) by age ----
+
+longer_table[age == 8, count_normalised := count / sum(count)]
+longer_table[age == 12, count_normalised := count / sum(count)]
+
+p_value_table_age <- map(longer_table$OTU_ID %>% unique,
+                         get_pvalue_otu_age,
+                         longer_table) %>% 
+  rbindlist %>% 
+  setorder(p_value) %>% 
+  drop_na(p_value)  # Remove NA values
+
+# Amalysis (HZ) ----
+
+longer_table_hz <- longer_table[genotype == "HZ"]
+
+longer_table_hz[age == 8, count_normalised := count / sum(count)]
+longer_table_hz[age == 12, count_normalised := count / sum(count)]
+
+p_value_table_age_hz <- map(longer_table_hz$OTU_ID %>% unique,
+                         get_pvalue_otu_age,
+                         longer_table_hz) %>% 
+  rbindlist %>% 
+  setorder(p_value) %>% 
+  drop_na(p_value)  # Remove NA values
+
+# Analysis (HTZ) ----
+
+longer_table_htz <- longer_table[genotype == "HTZ"]
+
+longer_table_htz[age == 8, count_normalised := count / sum(count)]
+longer_table_htz[age == 12, count_normalised := count / sum(count)]
+
+p_value_table_age_htz <- map(longer_table_htz$OTU_ID %>% unique,
+                            get_pvalue_otu_age,
+                            longer_table_htz) %>% 
+  rbindlist %>% 
+  setorder(p_value) %>% 
+  drop_na(p_value)  # Remove NA values
+
+# Analysis (WT) ----
+
+longer_table_wt <- longer_table[genotype == "WT"]
+
+longer_table_wt[age == 8, count_normalised := count / sum(count)]
+longer_table_wt[age == 12, count_normalised := count / sum(count)]
+
+p_value_table_age_wt <- map(longer_table_wt$OTU_ID %>% unique,
+                             get_pvalue_otu_age,
+                             longer_table_wt) %>% 
+  rbindlist %>% 
+  setorder(p_value) %>% 
+  drop_na(p_value)  # Remove NA values
+
+# Analysis gender ----
+
+longer_table[gender == "Female", count_normalised := count / sum(count)]
+longer_table[gender == "Male", count_normalised := count / sum(count)]
+
+p_value_table_sex <- map(longer_table$OTU_ID %>% unique,
+                         get_pvalue_otu_sex,
+                         longer_table) %>% 
+  rbindlist %>% 
+  setorder(p_value) %>% 
+  drop_na(p_value)  # Remove NA values
+
+# PCA ----
+pca_df <- copy(my_taxon)
+pca_df[, OTU_ID := str_extract(OTU_ID, "[^_]+$")]
+pca_df <- pca_df %>% drop_na(OTU_ID)
+
+rownames(pca_df) <- pca_df$OTU_ID
+pca_df[, OTU_ID := NULL]
+
+pca_result <- prcomp(pca_df, scale. = TRUE)
+biplot(pca_result)
+
+# Save tables ----
+
+# This is a manual approach, an absolute aberration
+write_csv(p_value_table, file = paste0(taxon, "/p_value_table.csv"))
+write_csv(p_value_table_age, file = paste0(taxon, "/p_value_table_age.csv"))
+write_csv(p_value_table_age_htz, file = paste0(taxon, "/p_value_table_age_htz.csv"))
+write_csv(p_value_table_age_hz, file = paste0(taxon, "/p_value_table_age_hz.csv"))
+write_csv(p_value_table_age_wt, file = paste0(taxon, "/p_value_table_age_wt.csv"))
+write_csv(p_value_table_sex, file = paste0(taxon, "/p_value_table_sex.csv"))
+
+
+# Extra ----
+
+p_value_table_genotype <- map(longer_table$OTU_ID %>% unique,
+                              get_wilcox_otu_genotype,
+                              longer_table) %>%
+  rbindlist %>%
+  drop_na()
+
+longer_table[, .(total_count = sum(count)), by = age]
+longer_table[, .(total_count = sum(count)), by = genotype]
