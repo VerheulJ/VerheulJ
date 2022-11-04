@@ -3,7 +3,7 @@ library(tidyverse)
 library(data.table)
 library(ggpubr)
 
-setwd("~/ubicacion")  # Change this to your data directory
+setwd("~/Downloads/holi")  # Change this to your data directory
 taxon <- c("Class")  # Change this to analyse the taxon of interest
 
 # Functions ----
@@ -21,14 +21,18 @@ get_pvalue_otu_age <- function(otu_id, taxon_table) {
       OTU_ID = otu_id,
       mean_8 = NA,
       mean_12 = NA,
-      p_value = NA
+      p_value = NA,
+      deviation_age8 = sd(otu8),
+      deviation_age12 = sd(otu12)
     ))
   } else if(length(otu12) == 0){
     return(data.table(
       OTU_ID = otu_id,
       mean_8 = NA,
       mean_12 = NA,
-      p_value = NA
+      p_value = NA,
+      deviation_age8 = sd(otu8),
+      deviation_age12 = sd(otu12)
     ))
   } else {
     p_value <- wilcox.test(otu8, otu12) %>% pluck("p.value")
@@ -37,7 +41,9 @@ get_pvalue_otu_age <- function(otu_id, taxon_table) {
       OTU_ID = otu_id,
       mean_8 = mean(otu8),
       mean_12 = mean(otu12),
-      p_value = p_value
+      p_value = p_value,
+      deviation_age8 = sd(otu8),
+      deviation_age12 = sd(otu12)
     )
     
     return(p_value_table)
@@ -58,14 +64,18 @@ get_pvalue_otu_sex <- function(otu_id, taxon_table) {
       OTU_ID = otu_id,
       mean_female = NA,
       mean_male = NA,
-      p_value = NA
+      p_value = NA,
+      deviation_male = NA,
+      deviation_female = NA
     ))
   } else if(length(otu_male) == 0){
     return(data.table(
       OTU_ID = otu_id,
       mean_female = NA,
       mean_male = NA,
-      p_value = NA
+      p_value = NA,
+      deviation_male = NA,
+      deviation_female = NA
     ))
   } else {
     p_value <- wilcox.test(otu_female, otu_male) %>% pluck("p.value")
@@ -74,7 +84,9 @@ get_pvalue_otu_sex <- function(otu_id, taxon_table) {
       OTU_ID = otu_id,
       mean_female = mean(otu_female),
       mean_male = mean(otu_male),
-      p_value = p_value
+      p_value = p_value,
+      deviation_male = sd(otu_male),
+      deviation_female = sd(otu_female)
     )
     
     return(p_value_table)
@@ -291,3 +303,4 @@ p_value_table_genotype <- map(longer_table$OTU_ID %>% unique,
 
 longer_table[, .(total_count = sum(count)), by = age]
 longer_table[, .(total_count = sum(count)), by = genotype]
+
