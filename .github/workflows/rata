@@ -1,0 +1,1690 @@
+
+
+#Análisis de Andrés repetición
+#library(tidyverse)
+library(data.table)
+#library(ggpubr)
+library(readr)
+library(stats)
+library(formattable)
+library(dplyr)
+library(car)
+options(scipen = 999)
+
+dominio_tabla_silva<-read_delim("rata/single/exported/dominio-tabla-silva-rata.tsv", 
+                                delim = "\t", escape_double = FALSE, 
+                                trim_ws = TRUE, skip = 1)
+sample_metadata <- read_table("rata/sample-metadata.tsv")
+
+#cambiar los nombres para la dominio y eliminar lo que no sea una dominio
+
+dominio_tabla_silva$`#OTU ID` <- sub("^.*d__", "", dominio_tabla_silva$`#OTU ID`)
+
+# Obtener las filas a eliminar basadas en el criterio
+filas_a_eliminar <- grepl("^d__|^uncultured|^Unassigned;__;__", dominio_tabla_silva$`#OTU ID`)
+
+
+# Eliminar las filas que cumplen con el criterio
+tabla_solodominio <- dominio_tabla_silva[!filas_a_eliminar, ]
+tabla_solodominionumeros<-tabla_solodominio[,-1]
+
+write.xlsx(tabla_solodominio, "rata/paired/Argentina/lecturas_dominio.xlsx", sheetName = "Dominio", row.names = TRUE, append = TRUE)
+
+
+#######################################################################################################
+
+# Crear un vector para almacenar las sumas
+num_columnas <- ncol(tabla_solodominionumeros)
+suma_columnas <- colSums(tabla_solodominionumeros)
+
+# Dividir cada valor en el dataframe tabla_solodominionumeros por la columna suma_columnas
+tabla_abundancias <- sweep(tabla_solodominionumeros, 2, suma_columnas, `/`) * 100
+
+tabla_solodominio <- cbind(tabla_solodominio[, 1], tabla_abundancias)
+
+#########################################################################
+#########################Genotipo########################################
+
+#PORTADORES
+muestras_TG <- sample_metadata %>%
+  filter(GENOTYPE == "TG") %>%
+  pull("SAMPLE-ID")
+
+tabla_TG <- tabla_solodominio %>%
+  select(1, all_of(muestras_TG))
+
+#WILDTYPE
+
+muestras_WT <- sample_metadata %>%
+  filter(GENOTYPE == "WT") %>%
+  pull("SAMPLE-ID")
+
+tabla_WT <- tabla_solodominio %>%
+  select(1, all_of(muestras_WT))
+
+
+
+
+#DIET
+muestras_HFD <- sample_metadata %>%
+  filter(DIET == "HFD") %>%
+  pull("SAMPLE-ID")
+
+tabla_HFD <- tabla_solodominio %>%
+  select(1, all_of(muestras_HFD))
+
+#CONT
+
+muestras_CONT <- sample_metadata %>%
+  filter(DIET == "CONT") %>%
+  pull("SAMPLE-ID")
+
+tabla_CONT <- tabla_solodominio %>%
+  select(1, all_of(muestras_CONT))
+
+numeros_HFD<-(tabla_HFD[, -1])
+numeros_HFD <- unlist(numeros_HFD)
+numeros_HFD<-as.numeric(numeros_HFD)
+shapiro.test(numeros_HFD)
+
+numeros_CONT<-(tabla_CONT[, -1])
+numeros_CONT <- unlist(numeros_CONT)
+numeros_CONT<-as.numeric(numeros_CONT)
+shapiro.test(numeros_CONT)
+
+numeros_TG<-(tabla_TG[, -1])
+numeros_TG <- unlist(numeros_TG)
+numeros_TG<-as.numeric(numeros_TG)
+shapiro.test(numeros_TG)
+
+numeros_WT<-(tabla_WT[, -1])
+numeros_WT <- unlist(numeros_WT)
+numeros_WT<-as.numeric(numeros_WT)
+shapiro.test(numeros_WT)
+
+
+# Combina los data frames en un solo data frame con una columna adicional para el grupo
+data_combinada <- rbind(data.frame(medida = numeros_CONT, grupo = "CONT"),
+                        data.frame(medida = numeros_HFD, grupo = "HFD"),
+                        data.frame(medida = numeros_TG, grupo = "TG"),
+                        data.frame(medida = numeros_WT, grupo = "WT"))
+
+# Convierte la columna "medida" a formato numérico
+data_combinada$medida <- as.numeric(data_combinada$medida)
+
+# Realiza el test de Levene
+resultado <- leveneTest(medida ~ grupo, data = data_combinada)
+
+# Imprime el resultado
+print(resultado)
+
+
+##############################################################################
+
+
+# Crear un vector para almacenar los valores de p
+p_DIETA_N <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_HFD)) {
+  concentracion_CONT <- as.numeric(tabla_CONT[n, -1])
+  concentracion_HFD <- as.numeric(tabla_HFD[n, -1])
+  resultado_DIETA_N<- wilcox.test(concentracion_HFD, concentracion_CONT, exact = FALSE)
+  p_DIETA_N <- c(p_DIETA_N, resultado_DIETA_N$p.value)
+}
+
+resultado_final_DIETA_N <- data.frame(tabla_solodominio[, 1], p_value = p_DIETA_N)
+
+
+
+##############################################################################
+
+
+# Crear un vector para almacenar los valores de p
+p_genotipo_N <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_TG)) {
+  concentracion_TG <- as.numeric(tabla_TG[n, -1])
+  concentracion_WT <- as.numeric(tabla_WT[n, -1])
+  resultado_genotipo_N<- wilcox.test(concentracion_WT, concentracion_TG, exact = FALSE)
+  p_genotipo_N <- c(p_genotipo_N, resultado_genotipo_N$p.value)
+}
+
+resultado_final_genotipo_N <- data.frame(tabla_solodominio[, 1], p_value = p_genotipo_N)
+
+#################################################################################
+
+
+medias_CONT <- data.frame(media = numeric(nrow(tabla_CONT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_CONT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_CONT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la media de la fila actual
+  media_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la media en el dataframe de medias_CONT
+  medias_CONT[i, "media"] <- media_fila
+}
+medias_porcentaje_CONT<-medias_CONT
+medias_CONT<-cbind(tabla_solodominio[,1],medias_porcentaje_CONT)
+
+
+##############################################################################
+medias_HFD <- data.frame(media = numeric(nrow(tabla_HFD)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_HFD)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_HFD[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la media de la fila actual
+  media_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la media en el dataframe de medias_HFD
+  medias_HFD[i, "media"] <- media_fila
+}
+medias_porcentaje_HFD<-medias_HFD
+medias_HFD<-cbind(tabla_solodominio[,1],medias_porcentaje_HFD)
+
+
+#######################################################################
+efecto_dieta<-cbind(medias_CONT,medias_HFD[,-1], resultado_final_DIETA_N[,-1] )
+colnames(efecto_dieta) <- c("Dominio", "media dieta normal", "media dieta HFD", "p-valor test")
+
+###################################################################
+medias_TG <- data.frame(media = numeric(nrow(tabla_TG)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_TG)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_TG[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la media de la fila actual
+  media_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la media en el dataframe de medias_TG
+  medias_TG[i, "media"] <- media_fila
+}
+medias_porcentaje_TG<-medias_TG
+
+medias_TG<-cbind(tabla_solodominio[,1],medias_porcentaje_TG)
+
+##############################################################################
+medias_WT <- data.frame(media = numeric(nrow(tabla_WT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_WT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_WT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la media de la fila actual
+  media_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la media en el dataframe de medias_WT
+  medias_WT[i, "media"] <- media_fila
+}
+medias_porcentaje_WT<-medias_WT
+
+medias_WT<-cbind(tabla_solodominio[,1],medias_porcentaje_WT)
+
+
+#######################################################################
+
+efecto_genotipo<-cbind(medias_TG,medias_WT[,-1], resultado_final_genotipo_N[,-1] )
+colnames(efecto_genotipo) <- c("Dominio", "media TG", "media WT", "p-valor test")
+
+filas_significativas_dieta <- efecto_dieta[efecto_dieta$`p-valor test` < 0.05, ]
+filas_significativas_genotipo <- efecto_genotipo[efecto_genotipo$`p-valor test` < 0.05, ]
+
+
+if (nrow(filas_significativas_genotipo) == 0) {
+  filas_significativas_genotipo <- data.frame(OTU = "No existen OTUs con diferencias")
+}
+if (nrow(filas_significativas_dieta) == 0) {
+  filas_significativas_dieta <- data.frame(OTU = "No existen OTUs con diferencias")
+}
+
+write.xlsx(filas_significativas_dieta, "rata/paired/Argentina/Significativo_dieta.xlsx", sheetName = "Dominio", row.names = FALSE, append = TRUE)
+write.xlsx(filas_significativas_genotipo, "rata/paired/Argentina/Significativo_genotipo.xlsx", sheetName = "Dominio", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_dieta, "rata/paired/Argentina/efecto_dieta.xlsx", sheetName = "Dominio", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_genotipo, "rata/paired/Argentina/efecto_genotipo.xlsx", sheetName = "Dominio", row.names = FALSE, append = TRUE)
+write.xlsx(tabla_solodominio, "rata/paired/Argentina/abundancias.xlsx", sheetName = "Dominio", row.names = FALSE, append = TRUE)
+
+
+
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+filo_tabla_silva<-read_delim("rata/single/exported/filo-tabla-silva-rata.tsv", 
+                             delim = "\t", escape_double = FALSE, 
+                             trim_ws = TRUE, skip = 1)
+sample_metadata <- read_table("rata/sample-metadata.tsv")
+
+#cambiar los nombres para la filo y eliminar lo que no sea una filo
+
+filo_tabla_silva$`#OTU ID` <- sub("^.*p__", "", filo_tabla_silva$`#OTU ID`)
+
+
+# Obtener las filas a eliminar basadas en el criterio
+filas_a_eliminar <- grepl("^d__|^uncultured|^Unassigned;__;__", filo_tabla_silva$`#OTU ID`)
+
+
+# Eliminar las filas que cumplen con el criterio
+tabla_solofilo <- filo_tabla_silva[!filas_a_eliminar, ]
+tabla_solofilonumeros<-tabla_solofilo[,-1]
+
+write.xlsx(tabla_solofilo, "rata/paired/Argentina/lecturas_filo.xlsx", sheetName = "filo", row.names = TRUE, append = TRUE)
+#######################################################################################################
+
+# Crear un vector para almacenar las sumas
+num_columnas <- ncol(tabla_solofilonumeros)
+suma_columnas <- colSums(tabla_solofilonumeros)
+
+# Dividir cada valor en el dataframe tabla_solofilonumeros por la columna suma_columnas
+tabla_abundancias <- sweep(tabla_solofilonumeros, 2, suma_columnas, `/`) * 100
+
+tabla_solofilo <- cbind(tabla_solofilo[, 1], tabla_abundancias)
+
+#########################################################################
+#########################Genotipo########################################
+
+#PORTADORES
+muestras_TG <- sample_metadata %>%
+  filter(GENOTYPE == "TG") %>%
+  pull("SAMPLE-ID")
+
+tabla_TG <- tabla_solofilo %>%
+  select(1, all_of(muestras_TG))
+
+#WILDTYPE
+
+muestras_WT <- sample_metadata %>%
+  filter(GENOTYPE == "WT") %>%
+  pull("SAMPLE-ID")
+
+tabla_WT <- tabla_solofilo %>%
+  select(1, all_of(muestras_WT))
+
+
+
+
+#DIET
+muestras_HFD <- sample_metadata %>%
+  filter(DIET == "HFD") %>%
+  pull("SAMPLE-ID")
+
+tabla_HFD <- tabla_solofilo %>%
+  select(1, all_of(muestras_HFD))
+
+#CONT
+
+muestras_CONT <- sample_metadata %>%
+  filter(DIET == "CONT") %>%
+  pull("SAMPLE-ID")
+
+tabla_CONT <- tabla_solofilo %>%
+  select(1, all_of(muestras_CONT))
+
+numeros_HFD<-(tabla_HFD[, -1])
+numeros_HFD <- unlist(numeros_HFD)
+numeros_HFD<-as.numeric(numeros_HFD)
+shapiro.test(numeros_HFD)
+
+numeros_CONT<-(tabla_CONT[, -1])
+numeros_CONT <- unlist(numeros_CONT)
+numeros_CONT<-as.numeric(numeros_CONT)
+shapiro.test(numeros_CONT)
+
+numeros_TG<-(tabla_TG[, -1])
+numeros_TG <- unlist(numeros_TG)
+numeros_TG<-as.numeric(numeros_TG)
+shapiro.test(numeros_TG)
+
+numeros_WT<-(tabla_WT[, -1])
+numeros_WT <- unlist(numeros_WT)
+numeros_WT<-as.numeric(numeros_WT)
+shapiro.test(numeros_WT)
+
+
+# Combina los data frames en un solo data frame con una columna adicional para el grupo
+data_combinada <- rbind(data.frame(medida = numeros_CONT, grupo = "CONT"),
+                        data.frame(medida = numeros_HFD, grupo = "HFD"),
+                        data.frame(medida = numeros_TG, grupo = "TG"),
+                        data.frame(medida = numeros_WT, grupo = "WT"))
+
+# Convierte la columna "medida" a formato numérico
+data_combinada$medida <- as.numeric(data_combinada$medida)
+
+# Realiza el test de Levene
+resultado <- leveneTest(medida ~ grupo, data = data_combinada)
+
+# Imprime el resultado
+print(resultado)
+
+
+##############################################################################
+
+
+# Crear un vector para almacenar los valores de p
+p_DIETA_N <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_HFD)) {
+  concentracion_CONT <- as.numeric(tabla_CONT[n, -1])
+  concentracion_HFD <- as.numeric(tabla_HFD[n, -1])
+  resultado_DIETA_N<- wilcox.test(concentracion_HFD, concentracion_CONT, exact = FALSE)
+  p_DIETA_N <- c(p_DIETA_N, resultado_DIETA_N$p.value)
+}
+
+resultado_final_DIETA_N <- data.frame(tabla_solofilo[, 1], p_value = p_DIETA_N)
+
+
+
+##############################################################################
+
+
+# Crear un vector para almacenar los valores de p
+p_genotipo_N <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_TG)) {
+  concentracion_TG <- as.numeric(tabla_TG[n, -1])
+  concentracion_WT <- as.numeric(tabla_WT[n, -1])
+  resultado_genotipo_N<- wilcox.test(concentracion_WT, concentracion_TG, exact = FALSE)
+  p_genotipo_N <- c(p_genotipo_N, resultado_genotipo_N$p.value)
+}
+
+resultado_final_genotipo_N <- data.frame(tabla_solofilo[, 1], p_value = p_genotipo_N)
+
+#################################################################################
+
+
+medias_CONT <- data.frame(media = numeric(nrow(tabla_CONT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_CONT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_CONT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la media de la fila actual
+  media_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la media en el dataframe de medias_CONT
+  medias_CONT[i, "media"] <- media_fila
+}
+medias_porcentaje_CONT<-medias_CONT
+medias_CONT<-cbind(tabla_solofilo[,1],medias_porcentaje_CONT)
+
+
+##############################################################################
+medias_HFD <- data.frame(media = numeric(nrow(tabla_HFD)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_HFD)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_HFD[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la media de la fila actual
+  media_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la media en el dataframe de medias_HFD
+  medias_HFD[i, "media"] <- media_fila
+}
+medias_porcentaje_HFD<-medias_HFD
+medias_HFD<-cbind(tabla_solofilo[,1],medias_porcentaje_HFD)
+
+
+#######################################################################
+efecto_dieta<-cbind(medias_CONT,medias_HFD[,-1], resultado_final_DIETA_N[,-1] )
+colnames(efecto_dieta) <- c("Filo", "media dieta normal", "media dieta HFD", "p-valor test")
+
+###################################################################
+medias_TG <- data.frame(media = numeric(nrow(tabla_TG)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_TG)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_TG[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la media de la fila actual
+  media_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la media en el dataframe de medias_TG
+  medias_TG[i, "media"] <- media_fila
+}
+medias_porcentaje_TG<-medias_TG
+
+medias_TG<-cbind(tabla_solofilo[,1],medias_porcentaje_TG)
+
+##############################################################################
+medias_WT <- data.frame(media = numeric(nrow(tabla_WT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_WT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_WT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la media de la fila actual
+  media_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la media en el dataframe de medias_WT
+  medias_WT[i, "media"] <- media_fila
+}
+medias_porcentaje_WT<-medias_WT
+
+medias_WT<-cbind(tabla_solofilo[,1],medias_porcentaje_WT)
+
+
+#######################################################################
+
+efecto_genotipo<-cbind(medias_TG,medias_WT[,-1], resultado_final_genotipo_N[,-1] )
+colnames(efecto_genotipo) <- c("Filo", "media TG", "media WT", "p-valor test")
+
+filas_significativas_dieta <- efecto_dieta[efecto_dieta$`p-valor test` < 0.05, ]
+filas_significativas_genotipo <- efecto_genotipo[efecto_genotipo$`p-valor test` < 0.05, ]
+
+
+if (nrow(filas_significativas_genotipo) == 0) {
+  filas_significativas_genotipo <- data.frame(OTU = "No existen OTUs con diferencias")
+}
+if (nrow(filas_significativas_dieta) == 0) {
+  filas_significativas_dieta <- data.frame(OTU = "No existen OTUs con diferencias")
+}
+
+write.xlsx(filas_significativas_dieta, "rata/paired/Argentina/Significativo_dieta.xlsx", sheetName = "Filo", row.names = FALSE, append = TRUE)
+write.xlsx(filas_significativas_genotipo, "rata/paired/Argentina/Significativo_genotipo.xlsx", sheetName = "Filo", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_dieta, "rata/paired/Argentina/efecto_dieta.xlsx", sheetName = "Filo", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_genotipo, "rata/paired/Argentina/efecto_genotipo.xlsx", sheetName = "Filo", row.names = FALSE, append = TRUE)
+write.xlsx(tabla_solofilo, "rata/paired/Argentina/abundancias.xlsx", sheetName = "Filo", row.names = FALSE, append = TRUE)
+
+
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+clase_tabla_silva<-read_delim("rata/single/exported/clase-tabla-silva-rata.tsv", 
+                              delim = "\t", escape_double = FALSE, 
+                              trim_ws = TRUE, skip = 1)
+sample_metadata <- read_table("rata/sample-metadata.tsv")
+
+#cambiar los nombres para la clase y eliminar lo que no sea una clase
+
+clase_tabla_silva$`#OTU ID` <- sub("^.*c__", "", clase_tabla_silva$`#OTU ID`)
+
+
+# Obtener las filas a eliminar basadas en el criterio
+filas_a_eliminar <- grepl("^d__|^uncultured|^Unassigned;__;__", clase_tabla_silva$`#OTU ID`)
+
+
+# Eliminar las filas que cumplen con el criterio
+tabla_soloclase <- clase_tabla_silva[!filas_a_eliminar, ]
+tabla_soloclasenumeros<-tabla_soloclase[,-1]
+write.xlsx(tabla_soloclase, "rata/paired/Argentina/lecturas_clase.xlsx", sheetName = "clase", row.names = TRUE, append = TRUE)
+#######################################################################################################
+
+# Crear un vector para almacenar las sumas
+num_columnas <- ncol(tabla_soloclasenumeros)
+suma_columnas <- colSums(tabla_soloclasenumeros)
+
+# Dividir cada valor en el dataframe tabla_soloclasenumeros por la columna suma_columnas
+tabla_abundancias <- sweep(tabla_soloclasenumeros, 2, suma_columnas, `/`) * 100
+
+tabla_soloclase <- cbind(tabla_soloclase[, 1], tabla_abundancias)
+
+#########################################################################
+#########################Genotipo########################################
+
+#PORTADORES
+muestras_TG <- sample_metadata %>%
+  filter(GENOTYPE == "TG") %>%
+  pull("SAMPLE-ID")
+
+tabla_TG <- tabla_soloclase %>%
+  select(1, all_of(muestras_TG))
+
+#WILDTYPE
+
+muestras_WT <- sample_metadata %>%
+  filter(GENOTYPE == "WT") %>%
+  pull("SAMPLE-ID")
+
+tabla_WT <- tabla_soloclase %>%
+  select(1, all_of(muestras_WT))
+
+
+
+
+#DIET
+muestras_HFD <- sample_metadata %>%
+  filter(DIET == "HFD") %>%
+  pull("SAMPLE-ID")
+
+tabla_HFD <- tabla_soloclase %>%
+  select(1, all_of(muestras_HFD))
+
+#CONT
+
+muestras_CONT <- sample_metadata %>%
+  filter(DIET == "CONT") %>%
+  pull("SAMPLE-ID")
+
+tabla_CONT <- tabla_soloclase %>%
+  select(1, all_of(muestras_CONT))
+
+numeros_HFD<-(tabla_HFD[, -1])
+numeros_HFD <- unlist(numeros_HFD)
+numeros_HFD<-as.numeric(numeros_HFD)
+shapiro.test(numeros_HFD)
+
+numeros_CONT<-(tabla_CONT[, -1])
+numeros_CONT <- unlist(numeros_CONT)
+numeros_CONT<-as.numeric(numeros_CONT)
+shapiro.test(numeros_CONT)
+
+numeros_TG<-(tabla_TG[, -1])
+numeros_TG <- unlist(numeros_TG)
+numeros_TG<-as.numeric(numeros_TG)
+shapiro.test(numeros_TG)
+
+numeros_WT<-(tabla_WT[, -1])
+numeros_WT <- unlist(numeros_WT)
+numeros_WT<-as.numeric(numeros_WT)
+shapiro.test(numeros_WT)
+
+
+# Combina los data frames en un solo data frame con una columna adicional para el grupo
+data_combinada <- rbind(data.frame(medida = numeros_CONT, grupo = "CONT"),
+                        data.frame(medida = numeros_HFD, grupo = "HFD"),
+                        data.frame(medida = numeros_TG, grupo = "TG"),
+                        data.frame(medida = numeros_WT, grupo = "WT"))
+
+# Convierte la columna "medida" a formato numérico
+data_combinada$medida <- as.numeric(data_combinada$medida)
+
+# Realiza el test de Levene
+resultado <- leveneTest(medida ~ grupo, data = data_combinada)
+
+# Imprime el resultado
+print(resultado)
+
+
+##############################################################################
+
+
+# Crear un vector para almacenar los valores de p
+p_DIETA_N <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_HFD)) {
+  concentracion_CONT <- as.numeric(tabla_CONT[n, -1])
+  concentracion_HFD <- as.numeric(tabla_HFD[n, -1])
+  resultado_DIETA_N<- wilcox.test(concentracion_HFD, concentracion_CONT, exact = FALSE)
+  p_DIETA_N <- c(p_DIETA_N, resultado_DIETA_N$p.value)
+}
+
+resultado_final_DIETA_N <- data.frame(tabla_soloclase[, 1], p_value = p_DIETA_N)
+
+
+
+##############################################################################
+
+
+# Crear un vector para almacenar los valores de p
+p_genotipo_N <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_TG)) {
+  concentracion_TG <- as.numeric(tabla_TG[n, -1])
+  concentracion_WT <- as.numeric(tabla_WT[n, -1])
+  resultado_genotipo_N<- wilcox.test(concentracion_WT, concentracion_TG, exact = FALSE)
+  p_genotipo_N <- c(p_genotipo_N, resultado_genotipo_N$p.value)
+}
+
+resultado_final_genotipo_N <- data.frame(tabla_soloclase[, 1], p_value = p_genotipo_N)
+
+#################################################################################
+
+
+medias_CONT <- data.frame(media = numeric(nrow(tabla_CONT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_CONT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_CONT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la media de la fila actual
+  media_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la media en el dataframe de medias_CONT
+  medias_CONT[i, "media"] <- media_fila
+}
+medias_porcentaje_CONT<-medias_CONT
+medias_CONT<-cbind(tabla_soloclase[,1],medias_porcentaje_CONT)
+
+
+##############################################################################
+medias_HFD <- data.frame(media = numeric(nrow(tabla_HFD)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_HFD)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_HFD[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la media de la fila actual
+  media_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la media en el dataframe de medias_HFD
+  medias_HFD[i, "media"] <- media_fila
+}
+medias_porcentaje_HFD<-medias_HFD
+medias_HFD<-cbind(tabla_soloclase[,1],medias_porcentaje_HFD)
+
+
+#######################################################################
+efecto_dieta<-cbind(medias_CONT,medias_HFD[,-1], resultado_final_DIETA_N[,-1] )
+colnames(efecto_dieta) <- c("Clase", "media dieta normal", "media dieta HFD", "p-valor test")
+
+###################################################################
+medias_TG <- data.frame(media = numeric(nrow(tabla_TG)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_TG)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_TG[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la media de la fila actual
+  media_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la media en el dataframe de medias_TG
+  medias_TG[i, "media"] <- media_fila
+}
+medias_porcentaje_TG<-medias_TG
+
+medias_TG<-cbind(tabla_soloclase[,1],medias_porcentaje_TG)
+
+##############################################################################
+medias_WT <- data.frame(media = numeric(nrow(tabla_WT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_WT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_WT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la media de la fila actual
+  media_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la media en el dataframe de medias_WT
+  medias_WT[i, "media"] <- media_fila
+}
+medias_porcentaje_WT<-medias_WT
+
+medias_WT<-cbind(tabla_soloclase[,1],medias_porcentaje_WT)
+
+
+#######################################################################
+
+efecto_genotipo<-cbind(medias_TG,medias_WT[,-1], resultado_final_genotipo_N[,-1] )
+colnames(efecto_genotipo) <- c("Clase", "media TG", "media WT", "p-valor test")
+
+filas_significativas_dieta <- efecto_dieta[efecto_dieta$`p-valor test` < 0.05, ]
+filas_significativas_genotipo <- efecto_genotipo[efecto_genotipo$`p-valor test` < 0.05, ]
+
+
+if (nrow(filas_significativas_genotipo) == 0) {
+  filas_significativas_genotipo <- data.frame(OTU = "No existen OTUs con diferencias")
+}
+if (nrow(filas_significativas_dieta) == 0) {
+  filas_significativas_dieta <- data.frame(OTU = "No existen OTUs con diferencias")
+}
+
+write.xlsx(filas_significativas_dieta, "rata/paired/Argentina/Significativo_dieta.xlsx", sheetName = "Clase", row.names = FALSE, append = TRUE)
+write.xlsx(filas_significativas_genotipo, "rata/paired/Argentina/Significativo_genotipo.xlsx", sheetName = "Clase", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_dieta, "rata/paired/Argentina/efecto_dieta.xlsx", sheetName = "Clase", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_genotipo, "rata/paired/Argentina/efecto_genotipo.xlsx", sheetName = "Clase", row.names = FALSE, append = TRUE)
+write.xlsx(tabla_soloclase, "rata/paired/Argentina/abundancias.xlsx", sheetName = "Clase", row.names = FALSE, append = TRUE)
+
+
+
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+orden_tabla_silva<-read_delim("rata/single/exported/orden-tabla-silva-rata.tsv", 
+                              delim = "\t", escape_double = FALSE, 
+                              trim_ws = TRUE, skip = 1)
+sample_metadata <- read_table("rata/sample-metadata.tsv")
+
+#cambiar los nombres para la orden y eliminar lo que no sea una orden
+
+orden_tabla_silva$`#OTU ID` <- sub("^.*o__", "", orden_tabla_silva$`#OTU ID`)
+
+
+# Obtener las filas a eliminar basadas en el criterio
+filas_a_eliminar <- grepl("^d__|^uncultured|^Unassigned;__;__", orden_tabla_silva$`#OTU ID`)
+
+
+# Eliminar las filas que cumplen con el criterio
+tabla_soloorden <- orden_tabla_silva[!filas_a_eliminar, ]
+tabla_soloordennumeros<-tabla_soloorden[,-1]
+write.xlsx(tabla_soloorden, "rata/paired/Argentina/lecturas_orden.xlsx", sheetName = "orden", row.names = TRUE, append = TRUE)
+#######################################################################################################
+
+# Crear un vector para almacenar las sumas
+num_columnas <- ncol(tabla_soloordennumeros)
+suma_columnas <- colSums(tabla_soloordennumeros)
+
+# Dividir cada valor en el dataframe tabla_soloordennumeros por la columna suma_columnas
+tabla_abundancias <- sweep(tabla_soloordennumeros, 2, suma_columnas, `/`) * 100
+
+tabla_soloorden <- cbind(tabla_soloorden[, 1], tabla_abundancias)
+
+#########################################################################
+#########################Genotipo########################################
+
+#PORTADORES
+muestras_TG <- sample_metadata %>%
+  filter(GENOTYPE == "TG") %>%
+  pull("SAMPLE-ID")
+
+tabla_TG <- tabla_soloorden %>%
+  select(1, all_of(muestras_TG))
+
+#WILDTYPE
+
+muestras_WT <- sample_metadata %>%
+  filter(GENOTYPE == "WT") %>%
+  pull("SAMPLE-ID")
+
+tabla_WT <- tabla_soloorden %>%
+  select(1, all_of(muestras_WT))
+
+
+
+
+#DIET
+muestras_HFD <- sample_metadata %>%
+  filter(DIET == "HFD") %>%
+  pull("SAMPLE-ID")
+
+tabla_HFD <- tabla_soloorden %>%
+  select(1, all_of(muestras_HFD))
+
+#CONT
+
+muestras_CONT <- sample_metadata %>%
+  filter(DIET == "CONT") %>%
+  pull("SAMPLE-ID")
+
+tabla_CONT <- tabla_soloorden %>%
+  select(1, all_of(muestras_CONT))
+
+numeros_HFD<-(tabla_HFD[, -1])
+numeros_HFD <- unlist(numeros_HFD)
+numeros_HFD<-as.numeric(numeros_HFD)
+shapiro.test(numeros_HFD)
+
+numeros_CONT<-(tabla_CONT[, -1])
+numeros_CONT <- unlist(numeros_CONT)
+numeros_CONT<-as.numeric(numeros_CONT)
+shapiro.test(numeros_CONT)
+
+numeros_TG<-(tabla_TG[, -1])
+numeros_TG <- unlist(numeros_TG)
+numeros_TG<-as.numeric(numeros_TG)
+shapiro.test(numeros_TG)
+
+numeros_WT<-(tabla_WT[, -1])
+numeros_WT <- unlist(numeros_WT)
+numeros_WT<-as.numeric(numeros_WT)
+shapiro.test(numeros_WT)
+
+
+# Combina los data frames en un solo data frame con una columna adicional para el grupo
+data_combinada <- rbind(data.frame(medida = numeros_CONT, grupo = "CONT"),
+                        data.frame(medida = numeros_HFD, grupo = "HFD"),
+                        data.frame(medida = numeros_TG, grupo = "TG"),
+                        data.frame(medida = numeros_WT, grupo = "WT"))
+
+# Convierte la columna "medida" a formato numérico
+data_combinada$medida <- as.numeric(data_combinada$medida)
+
+# Realiza el test de Levene
+resultado <- leveneTest(medida ~ grupo, data = data_combinada)
+
+# Imprime el resultado
+print(resultado)
+
+
+##############################################################################
+
+
+# Crear un vector para almacenar los valores de p
+p_DIETA_N <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_HFD)) {
+  concentracion_CONT <- as.numeric(tabla_CONT[n, -1])
+  concentracion_HFD <- as.numeric(tabla_HFD[n, -1])
+  resultado_DIETA_N<- wilcox.test(concentracion_HFD, concentracion_CONT, exact = FALSE)
+  p_DIETA_N <- c(p_DIETA_N, resultado_DIETA_N$p.value)
+}
+
+resultado_final_DIETA_N <- data.frame(tabla_soloorden[, 1], p_value = p_DIETA_N)
+
+
+
+##############################################################################
+
+
+# Crear un vector para almacenar los valores de p
+p_genotipo_N <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_TG)) {
+  concentracion_TG <- as.numeric(tabla_TG[n, -1])
+  concentracion_WT <- as.numeric(tabla_WT[n, -1])
+  resultado_genotipo_N<- wilcox.test(concentracion_WT, concentracion_TG, exact = FALSE)
+  p_genotipo_N <- c(p_genotipo_N, resultado_genotipo_N$p.value)
+}
+
+resultado_final_genotipo_N <- data.frame(tabla_soloorden[, 1], p_value = p_genotipo_N)
+
+#################################################################################
+
+
+medias_CONT <- data.frame(media = numeric(nrow(tabla_CONT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_CONT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_CONT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la media de la fila actual
+  media_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la media en el dataframe de medias_CONT
+  medias_CONT[i, "media"] <- media_fila
+}
+medias_porcentaje_CONT<-medias_CONT
+medias_CONT<-cbind(tabla_soloorden[,1],medias_porcentaje_CONT)
+
+
+##############################################################################
+medias_HFD <- data.frame(media = numeric(nrow(tabla_HFD)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_HFD)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_HFD[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la media de la fila actual
+  media_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la media en el dataframe de medias_HFD
+  medias_HFD[i, "media"] <- media_fila
+}
+medias_porcentaje_HFD<-medias_HFD
+medias_HFD<-cbind(tabla_soloorden[,1],medias_porcentaje_HFD)
+
+
+#######################################################################
+efecto_dieta<-cbind(medias_CONT,medias_HFD[,-1], resultado_final_DIETA_N[,-1] )
+colnames(efecto_dieta) <- c("Orden", "media dieta normal", "media dieta HFD", "p-valor test")
+
+###################################################################
+medias_TG <- data.frame(media = numeric(nrow(tabla_TG)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_TG)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_TG[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la media de la fila actual
+  media_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la media en el dataframe de medias_TG
+  medias_TG[i, "media"] <- media_fila
+}
+medias_porcentaje_TG<-medias_TG
+
+medias_TG<-cbind(tabla_soloorden[,1],medias_porcentaje_TG)
+
+##############################################################################
+medias_WT <- data.frame(media = numeric(nrow(tabla_WT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_WT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_WT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la media de la fila actual
+  media_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la media en el dataframe de medias_WT
+  medias_WT[i, "media"] <- media_fila
+}
+medias_porcentaje_WT<-medias_WT
+
+medias_WT<-cbind(tabla_soloorden[,1],medias_porcentaje_WT)
+
+
+#######################################################################
+
+efecto_genotipo<-cbind(medias_TG,medias_WT[,-1], resultado_final_genotipo_N[,-1] )
+colnames(efecto_genotipo) <- c("Orden", "media TG", "media WT", "p-valor test")
+
+filas_significativas_dieta <- efecto_dieta[efecto_dieta$`p-valor test` < 0.05, ]
+filas_significativas_genotipo <- efecto_genotipo[efecto_genotipo$`p-valor test` < 0.05, ]
+
+
+if (nrow(filas_significativas_genotipo) == 0) {
+  filas_significativas_genotipo <- data.frame(OTU = "No existen OTUs con diferencias")
+}
+if (nrow(filas_significativas_dieta) == 0) {
+  filas_significativas_dieta <- data.frame(OTU = "No existen OTUs con diferencias")
+}
+
+write.xlsx(filas_significativas_dieta, "rata/paired/Argentina/Significativo_dieta.xlsx", sheetName = "Orden", row.names = FALSE, append = TRUE)
+write.xlsx(filas_significativas_genotipo, "rata/paired/Argentina/Significativo_genotipo.xlsx", sheetName = "Orden", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_dieta, "rata/paired/Argentina/efecto_dieta.xlsx", sheetName = "Orden", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_genotipo, "rata/paired/Argentina/efecto_genotipo.xlsx", sheetName = "Orden", row.names = FALSE, append = TRUE)
+write.xlsx(tabla_soloorden, "rata/paired/Argentina/abundancias.xlsx", sheetName = "Orden", row.names = FALSE, append = TRUE)
+
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+
+
+
+familia_tabla_silva<-read_delim("rata/single/exported/familia-tabla-silva-rata.tsv", 
+                                delim = "\t", escape_double = FALSE, 
+                                trim_ws = TRUE, skip = 1)
+sample_metadata <- read_table("rata/sample-metadata.tsv")
+
+#cambiar los nombres para la familia y eliminar lo que no sea una familia
+
+familia_tabla_silva$`#OTU ID` <- sub("^.*f__", "", familia_tabla_silva$`#OTU ID`)
+
+
+# Obtener las filas a eliminar basadas en el criterio
+filas_a_eliminar <- grepl("^d__|^uncultured|^Unassigned;__;__", familia_tabla_silva$`#OTU ID`)
+
+
+# Eliminar las filas que cumplen con el criterio
+tabla_solofamilia <- familia_tabla_silva[!filas_a_eliminar, ]
+tabla_solofamilianumeros<-tabla_solofamilia[,-1]
+write.xlsx(tabla_solofamilia, "rata/paired/Argentina/lecturas_familia.xlsx", sheetName = "familia", row.names = TRUE, append = TRUE)
+
+#######################################################################################################
+
+# Crear un vector para almacenar las sumas
+num_columnas <- ncol(tabla_solofamilianumeros)
+suma_columnas <- colSums(tabla_solofamilianumeros)
+
+# Dividir cada valor en el dataframe tabla_solofamilianumeros por la columna suma_columnas
+tabla_abundancias <- sweep(tabla_solofamilianumeros, 2, suma_columnas, `/`) * 100
+
+tabla_solofamilia <- cbind(tabla_solofamilia[, 1], tabla_abundancias)
+
+#########################################################################
+#########################Genotipo########################################
+
+#PORTADORES
+muestras_TG <- sample_metadata %>%
+  filter(GENOTYPE == "TG") %>%
+  pull("SAMPLE-ID")
+
+tabla_TG <- tabla_solofamilia %>%
+  select(1, all_of(muestras_TG))
+
+#WILDTYPE
+
+muestras_WT <- sample_metadata %>%
+  filter(GENOTYPE == "WT") %>%
+  pull("SAMPLE-ID")
+
+tabla_WT <- tabla_solofamilia %>%
+  select(1, all_of(muestras_WT))
+
+
+
+
+#DIET
+muestras_HFD <- sample_metadata %>%
+  filter(DIET == "HFD") %>%
+  pull("SAMPLE-ID")
+
+tabla_HFD <- tabla_solofamilia %>%
+  select(1, all_of(muestras_HFD))
+
+#CONT
+
+muestras_CONT <- sample_metadata %>%
+  filter(DIET == "CONT") %>%
+  pull("SAMPLE-ID")
+
+tabla_CONT <- tabla_solofamilia %>%
+  select(1, all_of(muestras_CONT))
+
+numeros_HFD<-(tabla_HFD[, -1])
+numeros_HFD <- unlist(numeros_HFD)
+numeros_HFD<-as.numeric(numeros_HFD)
+shapiro.test(numeros_HFD)
+
+numeros_CONT<-(tabla_CONT[, -1])
+numeros_CONT <- unlist(numeros_CONT)
+numeros_CONT<-as.numeric(numeros_CONT)
+shapiro.test(numeros_CONT)
+
+numeros_TG<-(tabla_TG[, -1])
+numeros_TG <- unlist(numeros_TG)
+numeros_TG<-as.numeric(numeros_TG)
+shapiro.test(numeros_TG)
+
+numeros_WT<-(tabla_WT[, -1])
+numeros_WT <- unlist(numeros_WT)
+numeros_WT<-as.numeric(numeros_WT)
+shapiro.test(numeros_WT)
+
+
+# Combina los data frames en un solo data frame con una columna adicional para el grupo
+data_combinada <- rbind(data.frame(medida = numeros_CONT, grupo = "CONT"),
+                        data.frame(medida = numeros_HFD, grupo = "HFD"),
+                        data.frame(medida = numeros_TG, grupo = "TG"),
+                        data.frame(medida = numeros_WT, grupo = "WT"))
+
+# Convierte la columna "medida" a formato numérico
+data_combinada$medida <- as.numeric(data_combinada$medida)
+
+# Realiza el test de Levene
+resultado <- leveneTest(medida ~ grupo, data = data_combinada)
+
+# Imprime el resultado
+print(resultado)
+
+
+##############################################################################
+
+
+# Crear un vector para almacenar los valores de p
+p_DIETA_N <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_HFD)) {
+  concentracion_CONT <- as.numeric(tabla_CONT[n, -1])
+  concentracion_HFD <- as.numeric(tabla_HFD[n, -1])
+  resultado_DIETA_N<- wilcox.test(concentracion_HFD, concentracion_CONT, exact = FALSE)
+  p_DIETA_N <- c(p_DIETA_N, resultado_DIETA_N$p.value)
+}
+
+resultado_final_DIETA_N <- data.frame(tabla_solofamilia[, 1], p_value = p_DIETA_N)
+
+
+
+##############################################################################
+
+
+# Crear un vector para almacenar los valores de p
+p_genotipo_N <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_TG)) {
+  concentracion_TG <- as.numeric(tabla_TG[n, -1])
+  concentracion_WT <- as.numeric(tabla_WT[n, -1])
+  resultado_genotipo_N<- wilcox.test(concentracion_WT, concentracion_TG, exact = FALSE)
+  p_genotipo_N <- c(p_genotipo_N, resultado_genotipo_N$p.value)
+}
+
+resultado_final_genotipo_N <- data.frame(tabla_solofamilia[, 1], p_value = p_genotipo_N)
+
+#################################################################################
+
+
+medias_CONT <- data.frame(media = numeric(nrow(tabla_CONT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_CONT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_CONT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la media de la fila actual
+  media_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la media en el dataframe de medias_CONT
+  medias_CONT[i, "media"] <- media_fila
+}
+medias_porcentaje_CONT<-medias_CONT
+medias_CONT<-cbind(tabla_solofamilia[,1],medias_porcentaje_CONT)
+
+
+##############################################################################
+medias_HFD <- data.frame(media = numeric(nrow(tabla_HFD)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_HFD)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_HFD[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la media de la fila actual
+  media_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la media en el dataframe de medias_HFD
+  medias_HFD[i, "media"] <- media_fila
+}
+medias_porcentaje_HFD<-medias_HFD
+medias_HFD<-cbind(tabla_solofamilia[,1],medias_porcentaje_HFD)
+
+
+#######################################################################
+efecto_dieta<-cbind(medias_CONT,medias_HFD[,-1], resultado_final_DIETA_N[,-1] )
+colnames(efecto_dieta) <- c("Familia", "media dieta normal", "media dieta HFD", "p-valor test")
+
+###################################################################
+medias_TG <- data.frame(media = numeric(nrow(tabla_TG)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_TG)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_TG[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la media de la fila actual
+  media_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la media en el dataframe de medias_TG
+  medias_TG[i, "media"] <- media_fila
+}
+medias_porcentaje_TG<-medias_TG
+
+medias_TG<-cbind(tabla_solofamilia[,1],medias_porcentaje_TG)
+
+##############################################################################
+medias_WT <- data.frame(media = numeric(nrow(tabla_WT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_WT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_WT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la media de la fila actual
+  media_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la media en el dataframe de medias_WT
+  medias_WT[i, "media"] <- media_fila
+}
+medias_porcentaje_WT<-medias_WT
+
+medias_WT<-cbind(tabla_solofamilia[,1],medias_porcentaje_WT)
+
+
+#######################################################################
+
+efecto_genotipo<-cbind(medias_TG,medias_WT[,-1], resultado_final_genotipo_N[,-1] )
+colnames(efecto_genotipo) <- c("Familia", "media TG", "media WT", "p-valor test")
+
+filas_significativas_dieta <- efecto_dieta[efecto_dieta$`p-valor test` < 0.05, ]
+filas_significativas_genotipo <- efecto_genotipo[efecto_genotipo$`p-valor test` < 0.05, ]
+
+
+if (nrow(filas_significativas_genotipo) == 0) {
+  filas_significativas_genotipo <- data.frame(OTU = "No existen OTUs con diferencias")
+}
+if (nrow(filas_significativas_dieta) == 0) {
+  filas_significativas_dieta <- data.frame(OTU = "No existen OTUs con diferencias")
+}
+
+write.xlsx(filas_significativas_dieta, "rata/paired/Argentina/Significativo_dieta.xlsx", sheetName = "Familia", row.names = FALSE, append = TRUE)
+write.xlsx(filas_significativas_genotipo, "rata/paired/Argentina/Significativo_genotipo.xlsx", sheetName = "Familia", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_dieta, "rata/paired/Argentina/efecto_dieta.xlsx", sheetName = "Familia", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_genotipo, "rata/paired/Argentina/efecto_genotipo.xlsx", sheetName = "Familia", row.names = FALSE, append = TRUE)
+write.xlsx(tabla_solofamilia, "rata/paired/Argentina/abundancias.xlsx", sheetName = "Familia", row.names = FALSE, append = TRUE)
+
+
+
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+genero_tabla_silva<-read_delim("rata/single/exported/genero-tabla-silva-rata.tsv", 
+                               delim = "\t", escape_double = FALSE, 
+                               trim_ws = TRUE, skip = 1)
+sample_metadata <- read_table("rata/sample-metadata.tsv")
+
+#cambiar los nombres para la genero y eliminar lo que no sea una genero
+
+genero_tabla_silva$`#OTU ID` <- sub("^.*g__", "", genero_tabla_silva$`#OTU ID`)
+
+
+# Obtener las filas a eliminar basadas en el criterio
+filas_a_eliminar <- grepl("^d__|^uncultured|^Unassigned;__;__", genero_tabla_silva$`#OTU ID`)
+
+
+# Eliminar las filas que cumplen con el criterio
+tabla_sologenero <- genero_tabla_silva[!filas_a_eliminar, ]
+tabla_sologeneronumeros<-tabla_sologenero[,-1]
+
+write.xlsx(tabla_sologenero, "rata/paired/Argentina/lecturas_genero.xlsx", sheetName = "genero", row.names = TRUE, append = TRUE)
+#######################################################################################################
+
+# Crear un vector para almacenar las sumas
+num_columnas <- ncol(tabla_sologeneronumeros)
+suma_columnas <- colSums(tabla_sologeneronumeros)
+
+# Dividir cada valor en el dataframe tabla_sologeneronumeros por la columna suma_columnas
+tabla_abundancias <- sweep(tabla_sologeneronumeros, 2, suma_columnas, `/`) * 100
+
+tabla_sologenero <- cbind(tabla_sologenero[, 1], tabla_abundancias)
+
+#########################################################################
+#########################Genotipo########################################
+
+#PORTADORES
+muestras_TG <- sample_metadata %>%
+  filter(GENOTYPE == "TG") %>%
+  pull("SAMPLE-ID")
+
+tabla_TG <- tabla_sologenero %>%
+  select(1, all_of(muestras_TG))
+
+#WILDTYPE
+
+muestras_WT <- sample_metadata %>%
+  filter(GENOTYPE == "WT") %>%
+  pull("SAMPLE-ID")
+
+tabla_WT <- tabla_sologenero %>%
+  select(1, all_of(muestras_WT))
+
+
+
+
+#DIET
+muestras_HFD <- sample_metadata %>%
+  filter(DIET == "HFD") %>%
+  pull("SAMPLE-ID")
+
+tabla_HFD <- tabla_sologenero %>%
+  select(1, all_of(muestras_HFD))
+
+#CONT
+
+muestras_CONT <- sample_metadata %>%
+  filter(DIET == "CONT") %>%
+  pull("SAMPLE-ID")
+
+tabla_CONT <- tabla_sologenero %>%
+  select(1, all_of(muestras_CONT))
+
+numeros_HFD<-(tabla_HFD[, -1])
+numeros_HFD <- unlist(numeros_HFD)
+numeros_HFD<-as.numeric(numeros_HFD)
+shapiro.test(numeros_HFD)
+
+numeros_CONT<-(tabla_CONT[, -1])
+numeros_CONT <- unlist(numeros_CONT)
+numeros_CONT<-as.numeric(numeros_CONT)
+shapiro.test(numeros_CONT)
+
+numeros_TG<-(tabla_TG[, -1])
+numeros_TG <- unlist(numeros_TG)
+numeros_TG<-as.numeric(numeros_TG)
+shapiro.test(numeros_TG)
+
+numeros_WT<-(tabla_WT[, -1])
+numeros_WT <- unlist(numeros_WT)
+numeros_WT<-as.numeric(numeros_WT)
+shapiro.test(numeros_WT)
+
+
+# Combina los data frames en un solo data frame con una columna adicional para el grupo
+data_combinada <- rbind(data.frame(medida = numeros_CONT, grupo = "CONT"),
+                        data.frame(medida = numeros_HFD, grupo = "HFD"),
+                        data.frame(medida = numeros_TG, grupo = "TG"),
+                        data.frame(medida = numeros_WT, grupo = "WT"))
+
+# Convierte la columna "medida" a formato numérico
+data_combinada$medida <- as.numeric(data_combinada$medida)
+
+# Realiza el test de Levene
+resultado <- leveneTest(medida ~ grupo, data = data_combinada)
+
+# Imprime el resultado
+print(resultado)
+
+
+##############################################################################
+
+
+# Crear un vector para almacenar los valores de p
+p_DIETA_N <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_HFD)) {
+  concentracion_CONT <- as.numeric(tabla_CONT[n, -1])
+  concentracion_HFD <- as.numeric(tabla_HFD[n, -1])
+  resultado_DIETA_N<- wilcox.test(concentracion_HFD, concentracion_CONT, exact = FALSE)
+  p_DIETA_N <- c(p_DIETA_N, resultado_DIETA_N$p.value)
+}
+
+resultado_final_DIETA_N <- data.frame(tabla_sologenero[, 1], p_value = p_DIETA_N)
+
+
+
+##############################################################################
+
+
+# Crear un vector para almacenar los valores de p
+p_genotipo_N <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_TG)) {
+  concentracion_TG <- as.numeric(tabla_TG[n, -1])
+  concentracion_WT <- as.numeric(tabla_WT[n, -1])
+  resultado_genotipo_N<- wilcox.test(concentracion_WT, concentracion_TG, exact = FALSE)
+  p_genotipo_N <- c(p_genotipo_N, resultado_genotipo_N$p.value)
+}
+
+resultado_final_genotipo_N <- data.frame(tabla_sologenero[, 1], p_value = p_genotipo_N)
+
+#################################################################################
+
+
+medias_CONT <- data.frame(media = numeric(nrow(tabla_CONT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_CONT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_CONT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la media de la fila actual
+  media_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la media en el dataframe de medias_CONT
+  medias_CONT[i, "media"] <- media_fila
+}
+medias_porcentaje_CONT<-medias_CONT
+medias_CONT<-cbind(tabla_sologenero[,1],medias_porcentaje_CONT)
+
+
+##############################################################################
+medias_HFD <- data.frame(media = numeric(nrow(tabla_HFD)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_HFD)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_HFD[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la media de la fila actual
+  media_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la media en el dataframe de medias_HFD
+  medias_HFD[i, "media"] <- media_fila
+}
+medias_porcentaje_HFD<-medias_HFD
+medias_HFD<-cbind(tabla_sologenero[,1],medias_porcentaje_HFD)
+
+
+#######################################################################
+efecto_dieta<-cbind(medias_CONT,medias_HFD[,-1], resultado_final_DIETA_N[,-1] )
+colnames(efecto_dieta) <- c("Genero", "media dieta normal", "media dieta HFD", "p-valor test")
+
+###################################################################
+medias_TG <- data.frame(media = numeric(nrow(tabla_TG)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_TG)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_TG[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la media de la fila actual
+  media_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la media en el dataframe de medias_TG
+  medias_TG[i, "media"] <- media_fila
+}
+medias_porcentaje_TG<-medias_TG
+
+medias_TG<-cbind(tabla_sologenero[,1],medias_porcentaje_TG)
+
+##############################################################################
+medias_WT <- data.frame(media = numeric(nrow(tabla_WT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_WT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_WT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la media de la fila actual
+  media_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la media en el dataframe de medias_WT
+  medias_WT[i, "media"] <- media_fila
+}
+medias_porcentaje_WT<-medias_WT
+
+medias_WT<-cbind(tabla_sologenero[,1],medias_porcentaje_WT)
+
+
+#######################################################################
+
+efecto_genotipo<-cbind(medias_TG,medias_WT[,-1], resultado_final_genotipo_N[,-1] )
+colnames(efecto_genotipo) <- c("Genero", "media TG", "media WT", "p-valor test")
+
+filas_significativas_dieta <- efecto_dieta[efecto_dieta$`p-valor test` < 0.05, ]
+filas_significativas_genotipo <- efecto_genotipo[efecto_genotipo$`p-valor test` < 0.05, ]
+
+
+if (nrow(filas_significativas_genotipo) == 0) {
+  filas_significativas_genotipo <- data.frame(OTU = "No existen OTUs con diferencias")
+}
+if (nrow(filas_significativas_dieta) == 0) {
+  filas_significativas_dieta <- data.frame(OTU = "No existen OTUs con diferencias")
+}
+
+write.xlsx(filas_significativas_dieta, "rata/paired/Argentina/Significativo_dieta.xlsx", sheetName = "Genero", row.names = FALSE, append = TRUE)
+write.xlsx(filas_significativas_genotipo, "rata/paired/Argentina/Significativo_genotipo.xlsx", sheetName = "Genero", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_dieta, "rata/paired/Argentina/efecto_dieta.xlsx", sheetName = "Genero", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_genotipo, "rata/paired/Argentina/efecto_genotipo.xlsx", sheetName = "Genero", row.names = FALSE, append = TRUE)
+write.xlsx(tabla_sologenero, "rata/paired/Argentina/abundancias.xlsx", sheetName = "Genero", row.names = FALSE, append = TRUE)
+write.xlsx(genero_tabla_silva, "rata/paired/Argentina/lecturas.xlsx", sheetName = "Genero", row.names = FALSE, append = TRUE)
+
+
