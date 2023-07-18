@@ -1,0 +1,188 @@
+#denoise
+qiime dada2 denoise-paired \
+--i-demultiplexed-seqs demuxtfm.qza \
+--p-trim-left-f 0 \
+--p-trim-left-r 0 \
+--p-trunc-len-f 270 \
+--p-trunc-len-r 210 \
+--o-table table-paired.qza \
+--o-representative-sequences rep-seqs-paired.qza \
+--o-denoising-stats denoising_stats.qza
+
+qiime metadata tabulate \
+  --m-input-file denoising_stats.qza\
+  --o-visualization denoising_stats.qzv
+
+qiime feature-table summarize \
+  --i-table table-paired.qza \
+  --o-visualization table-paired.qzv \
+  --m-sample-metadata-file sample-metadata.tsv
+
+qiime feature-table tabulate-seqs \
+  --i-data rep-seqs-paired.qza \
+  --o-visualization rep-seqs-paired.qzv
+qiime rescript get-silva-data \
+    --p-version '138.1' \
+    --p-target 'SSURef_NR99' \
+    --o-silva-sequences silva-138.1-ssu-nr99-rna-seqs.qza \
+    --o-silva-taxonomy silva-138.1-ssu-nr99-tax.qza
+qiime rescript reverse-transcribe \
+    --i-rna-sequences silva-138.1-ssu-nr99-rna-seqs.qza 
+    --o-dna-sequences silva-138.1-ssu-nr99-seqs.qza
+
+qiime rescript cull-seqs \
+    --i-sequences silva-138.1-ssu-nr99-seqs.qza \
+    --o-clean-sequences silva-138.1-ssu-nr99-seqs-cleaned.qza
+
+qiime rescript filter-seqs-length-by-taxon \
+    --i-sequences silva-138.1-ssu-nr99-seqs-cleaned.qza \
+    --i-taxonomy silva-138.1-ssu-nr99-tax.qza \
+    --p-labels Archaea Bacteria Eukaryota \
+    --p-min-lens 900 1200 1400 \
+    --o-filtered-seqs silva-138.1-ssu-nr99-seqs-filt.qza \
+    --o-discarded-seqs silva-138.1-ssu-nr99-seqs-discard.qza 
+qiime rescript dereplicate \
+    --i-sequences silva-138.1-ssu-nr99-seqs-filt.qza  \
+    --i-taxa silva-138.1-ssu-nr99-tax.qza \
+    --p-mode 'uniq' \
+    --o-dereplicated-sequences silva-138.1-ssu-nr99-seqs-derep-uniq.qza \
+    --o-dereplicated-taxa silva-138.1-ssu-nr99-tax-derep-uniq.qza
+qiime feature-classifier fit-classifier-naive-bayes \
+  --i-reference-reads  silva-138.1-ssu-nr99-seqs-derep-uniq.qza \
+  --i-reference-taxonomy silva-138.1-ssu-nr99-tax-derep-uniq.qza \
+  --o-classifier silva-138.1-ssu-nr99-classifier.qza
+
+qiime feature-classifier extract-reads \
+  --i-sequences silva-138-99-seqs.qza \
+  --p-f-primer CCTACGGGNBGCAWCAG \
+  --p-r-primer GGACTACNVGGGTSTCTAAT \
+  --p-max-length 500 \
+  --o-reads silva-138-ref-seqs.qza
+
+qiime feature-classifier fit-classifier-naive-bayes \
+  --i-reference-reads silva-138-ref-seqs.qza \
+  --i-reference-taxonomy silva-138-99-tax.qza \
+  --o-classifier silva-138.1-ssu-nr99-classifier.qza
+
+qiime feature-classifier classify-sklearn \
+  --i-classifier classifier-99-silva-138.qza \
+  --i-reads rep-seqs-paired.qza \
+  --o-classification taxonomy-silva138-99.qza
+
+qiime metadata tabulate \
+  --m-input-file taxonomy-silva138-99.qza \
+  --o-visualization taxonomy-silva138-99.qzv
+
+qiime taxa barplot \
+  --i-table table-paired.qza \
+  --i-taxonomy taxonomy-silva138-99.qza \
+  --m-metadata-file sample-metadata.tsv \
+  --o-visualization taxa-bar-plots-138.qzv
+
+qiime taxa collapse \
+  --i-table table-paired.qza \
+  --i-taxonomy taxonomy-silva138-99.qza \
+  --p-level 1 \
+  --o-collapsed-table dominio-tabla-silva.qza
+
+qiime taxa collapse \
+  --i-table table-paired.qza \
+  --i-taxonomy taxonomy-silva138-99.qza \
+  --p-level 2 \
+  --o-collapsed-table filo-tabla-silva.qza
+
+qiime taxa collapse \
+  --i-table table-paired.qza \
+  --i-taxonomy taxonomy-silva138-99.qza \
+  --p-level 3 \
+  --o-collapsed-table clase-tabla-silva.qza
+
+qiime taxa collapse \
+  --i-table table-paired.qza \
+  --i-taxonomy taxonomy-silva138-99.qza \
+  --p-level 4 \
+  --o-collapsed-table orden-tabla-silva.qza
+
+qiime taxa collapse \
+  --i-table table-paired.qza \
+  --i-taxonomy taxonomy-silva138-99.qza \
+  --p-level 5 \
+  --o-collapsed-table familia-tabla-silva.qza
+
+qiime taxa collapse \
+  --i-table table-paired.qza \
+  --i-taxonomy taxonomy-silva138-99.qza \
+  --p-level 6 \
+  --o-collapsed-table genero-tabla-silva.qza
+
+qiime taxa collapse \
+  --i-table table-paired.qza \
+  --i-taxonomy taxonomy-silva138-99.qza \
+  --p-level 7 \
+  --o-collapsed-table especie-tabla-silva.qza
+
+#1. Dominio
+qiime tools export \
+--input-path dominio-tabla-silva.qza \
+--output-path exported
+cd exported
+biom convert -i feature-table.biom -o dominio-tabla-silva.tsv --to-tsv
+sed 's/\t/,/g' dominio-tabla-silva.tsv > dominio-tabla-silva.csv
+cd ..
+
+#2. Filo
+qiime tools export \
+--input-path filo-tabla-silva.qza \
+--output-path exported
+cd exported
+biom convert -i feature-table.biom -o filo-tabla-silva.tsv --to-tsv
+sed 's/\t/,/g' filo-tabla-silva.tsv > filo-tabla-silva.csv
+cd ..
+
+#3. Clase
+qiime tools export \
+--input-path clase-tabla-silva.qza \
+--output-path exported
+cd exported
+biom convert -i feature-table.biom -o clase-tabla-silva.tsv --to-tsv
+sed 's/\t/,/g' clase-tabla-silva.tsv > clase-tabla-silva.csv
+cd ..
+
+#4. Orden
+qiime tools export \
+--input-path orden-tabla-silva.qza \
+--output-path exported
+cd exported
+biom convert -i feature-table.biom -o orden-tabla-silva.tsv --to-tsv
+sed 's/\t/,/g' orden-tabla-silva.tsv > orden-tabla-silva.csv
+cd ..
+
+
+#5. Familia
+qiime tools export \
+--input-path familia-tabla-silva.qza \
+--output-path exported
+cd exported
+biom convert -i feature-table.biom -o familia-tabla-silva.tsv --to-tsv
+sed 's/\t/,/g' familia-tabla-silva.tsv > familia-tabla-silva.csv
+cd ..
+
+#6. Género
+qiime tools export \
+--input-path genero-tabla-silva.qza \
+--output-path exported
+cd exported
+biom convert -i feature-table.biom -o genero-tabla-silva.tsv --to-tsv
+sed 's/\t/,/g' genero-tabla-silva.tsv > genero-tabla-silva.csv
+cd ..
+
+#7. Especie
+qiime tools export \
+--input-path especie-tabla-silva.qza \
+--output-path exported
+cd exported
+biom convert -i feature-table.biom -o especie-tabla-silva.tsv --to-tsv
+sed 's/\t/,/g' especie-tabla-silva.tsv > especie-tabla-silva.csv
+cd ..
+
+
