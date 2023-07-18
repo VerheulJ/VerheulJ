@@ -1,0 +1,4700 @@
+#library(tidyverse)
+library(data.table)
+#library(ggpubr)
+library(readr)
+library(stats)
+library(formattable)
+library(dplyr)
+library(car)
+library(xlsx)
+options(scipen = 999)
+
+dominio_tabla_silva<-read_delim("alzheimer/exported/dominio-tabla-silva.tsv", 
+                                delim = "\t", escape_double = FALSE, 
+                                trim_ws = TRUE, skip = 1)
+sample_metadata <- read_table("alzheimer/sample-metadata.tsv")
+
+#cambiar los nombres para la dominio y eliminar lo que no sea una dominio
+
+dominio_tabla_silva$`#OTU ID` <- sub("^.*d__", "", dominio_tabla_silva$`#OTU ID`)
+
+# Obtener las filas a eliminar basadas en el criterio
+dominio_tabla_silva <- dominio_tabla_silva[!grepl("Unassigned", dominio_tabla_silva$`#OTU ID`), ]
+
+tabla_solodominio<-dominio_tabla_silva
+tabla_solodominionumeros<-tabla_solodominio[,-1]
+
+write.xlsx(tabla_solodominio, "alzheimer/lecturas_dominio.xlsx", sheetName = "Domain", row.names = TRUE, append = TRUE)
+
+
+# Crear un vector para almacenar las sumas
+num_columnas <- ncol(tabla_solodominionumeros)
+suma_columnas <- colSums(tabla_solodominionumeros)
+
+# Dividir cada valor en el dataframe tabla_solodominionumeros por la columna suma_columnas
+tabla_abundancias <- sweep(tabla_solodominionumeros, 2, suma_columnas, `/`) * 100
+
+tabla_solodominio <- cbind(tabla_solodominio[, 1], tabla_abundancias)
+
+
+#########################################################################
+#########################Genero########################################
+#########################################################################
+
+
+#gender
+muestras_Male <- sample_metadata %>%
+  filter(gender == "Male") %>%
+  pull("sample-id")
+
+tabla_Male <- tabla_solodominio %>%
+  select(1, all_of(muestras_Male))
+
+#Female
+
+muestras_Female <- sample_metadata %>%
+  filter(gender == "Female") %>%
+  pull("sample-id")
+
+tabla_Female <- tabla_solodominio %>%
+  select(1, all_of(muestras_Female))
+
+numeros_Male<-(tabla_Male[, -1])
+numeros_Male <- unlist(numeros_Male)
+numeros_Male<-as.numeric(numeros_Male)
+shapiro.test(numeros_Male)
+
+numeros_Female<-(tabla_Female[, -1])
+numeros_Female <- unlist(numeros_Female)
+numeros_Female<-as.numeric(numeros_Female)
+shapiro.test(numeros_Female)
+
+
+
+# Crear un vector para almacenar los valores de p
+p_gender <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_Male)) {
+  concentracion_Female <- as.numeric(tabla_Female[n, -1])
+  concentracion_Male <- as.numeric(tabla_Male[n, -1])
+  resultado_gender<- wilcox.test(concentracion_Male, concentracion_Female, exact = FALSE)
+  p_gender <- c(p_gender, resultado_gender$p.value)
+}
+
+resultado_final_gender <- data.frame(tabla_solodominio[, 1], p_value = p_gender)
+
+averages_Female <- data.frame(average = numeric(nrow(tabla_Female)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_Female)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_Female[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_Female
+  averages_Female[i, "average"] <- average_fila
+}
+averages_porcentaje_Female<-averages_Female
+averages_Female<-cbind(tabla_solodominio[,1],averages_porcentaje_Female)
+
+
+##############################################################################
+averages_Male <- data.frame(average = numeric(nrow(tabla_Male)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_Male)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_Male[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_Male
+  averages_Male[i, "average"] <- average_fila
+}
+averages_porcentaje_Male<-averages_Male
+averages_Male<-cbind(tabla_solodominio[,1],averages_porcentaje_Male)
+
+
+#######################################################################
+efecto_gender<-cbind(averages_Female,averages_Male[,-1], resultado_final_gender[,-1] )
+colnames(efecto_gender) <- c("Domain", "Average female", "Average male", "p-valor test")
+
+filas_significativas_gender <- efecto_gender[efecto_gender$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_gender) == 0) {
+  filas_significativas_gender <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+
+
+##############################################################################
+##############################################################################
+
+########################################################################
+#########################Edad########################################
+#########################################################################
+
+
+#age
+muestras_12 <- sample_metadata %>%
+  filter(age == "12") %>%
+  pull("sample-id")
+
+tabla_12 <- tabla_solodominio %>%
+  select(1, all_of(muestras_12))
+
+#8
+
+muestras_8 <- sample_metadata %>%
+  filter(age == "8") %>%
+  pull("sample-id")
+
+tabla_8 <- tabla_solodominio %>%
+  select(1, all_of(muestras_8))
+
+numeros_12<-(tabla_12[, -1])
+numeros_12 <- unlist(numeros_12)
+numeros_12<-as.numeric(numeros_12)
+shapiro.test(numeros_12)
+
+numeros_8<-(tabla_8[, -1])
+numeros_8 <- unlist(numeros_8)
+numeros_8<-as.numeric(numeros_8)
+shapiro.test(numeros_8)
+
+
+
+# Crear un vector para almacenar los valores de p
+p_age <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12)) {
+  concentracion_8 <- as.numeric(tabla_8[n, -1])
+  concentracion_12 <- as.numeric(tabla_12[n, -1])
+  resultado_age<- wilcox.test(concentracion_12, concentracion_8, exact = FALSE)
+  p_age <- c(p_age, resultado_age$p.value)
+}
+
+resultado_final_age <- data.frame(tabla_solodominio[, 1], p_value = p_age)
+
+averages_8 <- data.frame(average = numeric(nrow(tabla_8)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_8)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_8[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_8
+  averages_8[i, "average"] <- average_fila
+}
+averages_porcentaje_8<-averages_8
+averages_8<-cbind(tabla_solodominio[,1],averages_porcentaje_8)
+
+
+##############################################################################
+averages_12 <- data.frame(average = numeric(nrow(tabla_12)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_12)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_12[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_12
+  averages_12[i, "average"] <- average_fila
+}
+averages_porcentaje_12<-averages_12
+averages_12<-cbind(tabla_solodominio[,1],averages_porcentaje_12)
+
+
+#######################################################################
+efecto_age<-cbind(averages_8,averages_12[,-1], resultado_final_age[,-1] )
+colnames(efecto_age) <- c("Domain", "average 8 months", "average 12 months", "p-valor test")
+
+filas_significativas_age <- efecto_age[efecto_age$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_age) == 0) {
+  filas_significativas_age <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+
+###################################################################
+#########################GENOTIPO##################################
+#GENOTIPO
+muestras_WT <- sample_metadata %>%
+  filter(genotype == "WT") %>%
+  pull("sample-id")
+
+tabla_WT <- tabla_solodominio %>%
+  select(1, all_of(muestras_WT))
+
+#HTZ
+
+muestras_HTZ <- sample_metadata %>%
+  filter(genotype == "HTZ") %>%
+  pull("sample-id")
+
+tabla_HTZ <- tabla_solodominio %>%
+  select(1, all_of(muestras_HTZ))
+
+
+muestras_HZ <- sample_metadata %>%
+  filter(genotype == "HZ") %>%
+  pull("sample-id")
+
+tabla_HZ <- tabla_solodominio %>%
+  select(1, all_of(muestras_HZ))
+
+
+
+#test estadístico krustall wallis para el GENOTIPO
+
+
+# Identificar filas completas con NA en el dataframe tabla_WT
+filas_completas_na <- complete.cases(tabla_WT)
+
+# Filtrar el dataframe tabla_WT excluyendo las filas con NA
+tabla_WT_filtrado <- tabla_WT[filas_completas_na, ]
+
+# Hacer lo mismo para el dataframe hzt
+tabla_HTZ_filtrado <- tabla_HTZ[filas_completas_na, ]
+
+# Hacer lo mismo para el dataframe hzt
+tabla_HZ_filtrado <- tabla_HZ[filas_completas_na, ]
+
+
+
+p_genotype <- c()  # Vector para almacenar los p-valores
+
+for (n in 1:nrow(tabla_WT_filtrado)) {
+  concentracion_WT <- as.numeric(tabla_WT_filtrado[n, -1])
+  concentracion_HTZ <- as.numeric(tabla_HTZ_filtrado[n, -1])
+  concentracion_HZ <- as.numeric(tabla_HZ_filtrado[n, -1])
+  
+  x <- c(concentracion_HZ, concentracion_HTZ, concentracion_WT)
+  g <- factor(rep(1:3, c(20, 22, 35)),
+              labels = c("concentracion_HZ",
+                         "concentracion_HTZ",
+                         "concentracion_WT"))
+  
+  resultado_genotype <- kruskal.test(x,g)
+  
+  p_genotype <- c(p_genotype, resultado_genotype$p.value)
+}
+
+averages_HTZ <- data.frame(average = numeric(nrow(tabla_HTZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_HTZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_HTZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_HTZ
+  averages_HTZ[i, "average"] <- average_fila
+}
+averages_porcentaje_HTZ<-averages_HTZ
+averages_HTZ<-cbind(tabla_solodominio[,1],averages_porcentaje_HTZ)
+
+
+##############################################################################
+averages_WT <- data.frame(average = numeric(nrow(tabla_WT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_WT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_WT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_WT
+  averages_WT[i, "average"] <- average_fila
+}
+averages_porcentaje_WT<-averages_WT
+averages_WT<-cbind(tabla_solodominio[,1],averages_porcentaje_WT)
+
+##############################################################################
+averages_HZ <- data.frame(average = numeric(nrow(tabla_HZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_HZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_HZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_HZ
+  averages_HZ[i, "average"] <- average_fila
+}
+averages_porcentaje_HZ<-averages_HZ
+averages_HZ<-cbind(tabla_solodominio[,1],averages_porcentaje_HZ)
+
+resultado_final_genotype <- data.frame(tabla_solodominio[, 1], p_value = p_genotype)
+
+
+efecto_genotype<-cbind(averages_HZ,averages_WT[,-1], averages_HTZ[,-1], resultado_final_genotype[,-1])
+colnames(efecto_genotype) <- c("Domain", "average genotype HZ", "average genotype WT", "average genotype HTZ","p-valor test")
+
+filas_significativas_genotype <- efecto_genotype[efecto_genotype$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_genotype) == 0) {
+  filas_significativas_genotype <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+
+
+muestras_8_HZ <- sample_metadata %>%
+  filter(age == "8", genotype == "HZ") %>%
+  pull("sample-id")
+
+tabla_8_HZ <- tabla_solodominio %>%
+  select(1, all_of(muestras_8_HZ))
+
+muestras_8_HTZ <- sample_metadata %>%
+  filter(age == "8", genotype == "HTZ") %>%
+  pull("sample-id")
+
+tabla_8_HTZ <- tabla_solodominio %>%
+  select(1, all_of(muestras_8_HTZ))
+
+
+muestras_8_WT <- sample_metadata %>%
+  filter(age == "8", genotype == "WT") %>%
+  pull("sample-id")
+
+tabla_8_WT <- tabla_solodominio %>%
+  select(1, all_of(muestras_8_WT))
+
+###################################################################
+
+muestras_12_HZ <- sample_metadata %>%
+  filter(age == "12", genotype == "HZ") %>%
+  pull("sample-id")
+
+tabla_12_HZ <- tabla_solodominio %>%
+  select(1, all_of(muestras_12_HZ))
+
+muestras_12_HTZ <- sample_metadata %>%
+  filter(age == "12", genotype == "HTZ") %>%
+  pull("sample-id")
+
+tabla_12_HTZ <- tabla_solodominio %>%
+  select(1, all_of(muestras_12_HTZ))
+
+
+muestras_12_WT <- sample_metadata %>%
+  filter(age == "12", genotype == "WT") %>%
+  pull("sample-id")
+
+tabla_12_WT <- tabla_solodominio %>%
+  select(1, all_of(muestras_12_WT))
+
+
+###################################################################3
+
+
+
+
+# Crear un vector para almacenar los valores de p
+p_age_genotipo <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12_WT)) {
+  concentracion_8_WT <- as.numeric(tabla_8_WT[n, -1])
+  concentracion_12_WT <- as.numeric(tabla_12_WT[n, -1])
+  resultado_age_genotipo<- wilcox.test(concentracion_12_WT, concentracion_8_WT, exact = FALSE)
+  p_age_genotipo <- c(p_age_genotipo, resultado_age_genotipo$p.value)
+}
+
+resultado_final_age_genotipo_WT <- data.frame(tabla_solodominio[, 1], p_value = p_age_genotipo)
+
+average_genotipos_8_WT <- data.frame(average_genotipo = numeric(nrow(tabla_8_WT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_8_WT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_8_WT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_8_WT
+  average_genotipos_8_WT[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_8_WT<-average_genotipos_8_WT
+average_genotipos_8_WT<-cbind(tabla_solodominio[,1],average_genotipos_porcentaje_8_WT)
+
+
+##############################################################################
+average_genotipos_12_WT <- data.frame(average_genotipo = numeric(nrow(tabla_12_WT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_12_WT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_12_WT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_12_WT
+  average_genotipos_12_WT[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_12_WT<-average_genotipos_12_WT
+average_genotipos_12_WT<-cbind(tabla_solodominio[,1],average_genotipos_porcentaje_12_WT)
+
+
+#######################################################################
+efecto_age_genotipo_WT<-cbind(average_genotipos_8_WT,average_genotipos_12_WT[,-1], resultado_final_age_genotipo_WT[,-1] )
+efecto_age_genotipo_WT <- data.frame(lapply(efecto_age_genotipo_WT, function(x) ifelse(is.nan(x), 1, x)))
+
+colnames(efecto_age_genotipo_WT) <- c("Domain", "Average WT 8 months", "Average WT 12 months", "p-valor test")
+
+filas_significativas_age_genotipo_WT <- efecto_age_genotipo_WT[efecto_age_genotipo_WT$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_age_genotipo_WT) == 0) {
+  filas_significativas_age_genotipo_WT <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+write.xlsx(filas_significativas_age_genotipo_WT, "alzheimer/Significativo_genotipo_edad.xlsx", sheetName = "Domain Wildtype", row.names = FALSE, append = TRUE)
+
+
+
+# Crear un vector para almacenar los valores de p
+p_age_genotipo <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12_HZ)) {
+  concentracion_8_HZ <- as.numeric(tabla_8_HZ[n, -1])
+  concentracion_12_HZ <- as.numeric(tabla_12_HZ[n, -1])
+  resultado_age_genotipo<- wilcox.test(concentracion_12_HZ, concentracion_8_HZ, exact = FALSE)
+  p_age_genotipo <- c(p_age_genotipo, resultado_age_genotipo$p.value)
+}
+
+resultado_final_age_genotipo_HZ <- data.frame(tabla_solodominio[, 1], p_value = p_age_genotipo)
+
+average_genotipos_8_HZ <- data.frame(average_genotipo = numeric(nrow(tabla_8_HZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_8_HZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_8_HZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_8_HZ
+  average_genotipos_8_HZ[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_8_HZ<-average_genotipos_8_HZ
+average_genotipos_8_HZ<-cbind(tabla_solodominio[,1],average_genotipos_porcentaje_8_HZ)
+
+
+##############################################################################
+average_genotipos_12_HZ <- data.frame(average_genotipo = numeric(nrow(tabla_12_HZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_12_HZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_12_HZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_12_HZ
+  average_genotipos_12_HZ[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_12_HZ<-average_genotipos_12_HZ
+average_genotipos_12_HZ<-cbind(tabla_solodominio[,1],average_genotipos_porcentaje_12_HZ)
+
+
+#######################################################################
+efecto_age_genotipo_HZ<-cbind(average_genotipos_8_HZ,average_genotipos_12_HZ[,-1], resultado_final_age_genotipo_HZ[,-1] )
+efecto_age_genotipo_HZ <- data.frame(lapply(efecto_age_genotipo_HZ, function(x) ifelse(is.nan(x), 1, x)))
+
+colnames(efecto_age_genotipo_HZ) <- c("Domain", "Average HZ 8 months", "Average HZ 12 months", "p-valor test")
+
+filas_significativas_age_genotipo_HZ <- efecto_age_genotipo_HZ[efecto_age_genotipo_HZ$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_age_genotipo_HZ) == 0) {
+  filas_significativas_age_genotipo_HZ <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+write.xlsx(filas_significativas_age_genotipo_HZ, "alzheimer/Significativo_genotipo_edad.xlsx", sheetName = "Domain Homozygous", row.names = FALSE, append = TRUE)
+
+
+
+# Crear un vector para almacenar los valores de p
+p_age_genotipo <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12_HTZ)) {
+  concentracion_8_HTZ <- as.numeric(tabla_8_HTZ[n, -1])
+  concentracion_12_HTZ <- as.numeric(tabla_12_HTZ[n, -1])
+  resultado_age_genotipo<- wilcox.test(concentracion_12_HTZ, concentracion_8_HTZ, exact = FALSE)
+  p_age_genotipo <- c(p_age_genotipo, resultado_age_genotipo$p.value)
+}
+
+resultado_final_age_genotipo_HTZ <- data.frame(tabla_solodominio[, 1], p_value = p_age_genotipo)
+
+average_genotipos_8_HTZ <- data.frame(average_genotipo = numeric(nrow(tabla_8_HTZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_8_HTZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_8_HTZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_8_HTZ
+  average_genotipos_8_HTZ[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_8_HTZ<-average_genotipos_8_HTZ
+average_genotipos_8_HTZ<-cbind(tabla_solodominio[,1],average_genotipos_porcentaje_8_HTZ)
+
+
+##############################################################################
+average_genotipos_12_HTZ <- data.frame(average_genotipo = numeric(nrow(tabla_12_HTZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_12_HTZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_12_HTZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_12_HTZ
+  average_genotipos_12_HTZ[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_12_HTZ<-average_genotipos_12_HTZ
+average_genotipos_12_HTZ<-cbind(tabla_solodominio[,1],average_genotipos_porcentaje_12_HTZ)
+
+
+#######################################################################
+efecto_age_genotipo_HTZ<-cbind(average_genotipos_8_HTZ,average_genotipos_12_HTZ[,-1], resultado_final_age_genotipo_HTZ[,-1] )
+efecto_age_genotipo_HTZ <- data.frame(lapply(efecto_age_genotipo_HTZ, function(x) ifelse(is.nan(x), 1, x)))
+colnames(efecto_age_genotipo_HTZ) <- c("Domain", "Average HTZ 8 months", "Average HTZ 12 months", "p-valor test")
+
+
+
+filas_significativas_age_genotipo_HTZ <- efecto_age_genotipo_HTZ[efecto_age_genotipo_HTZ$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_age_genotipo_HTZ) == 0) {
+  filas_significativas_age_genotipo_HTZ <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+
+write.xlsx(filas_significativas_age_genotipo_HTZ, "alzheimer/Significativo_genotipo_edad.xlsx", sheetName = "Domain heterozygous", row.names = FALSE, append = TRUE)
+
+
+write.xlsx(filas_significativas_gender, "alzheimer/Significativo_gender.xlsx", sheetName = "Domain", row.names = FALSE, append = TRUE)
+write.xlsx(filas_significativas_genotype, "alzheimer/Significativo_genotype.xlsx", sheetName = "Domain", row.names = FALSE, append = TRUE)
+write.xlsx(filas_significativas_age, "alzheimer/Significativo_age.xlsx", sheetName = "Domain", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_age, "alzheimer/efecto_age.xlsx", sheetName = "Domain", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_genotype, "alzheimer/efecto_genotype.xlsx", sheetName = "Domain", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_gender, "alzheimer/efecto_gender.xlsx", sheetName = "Domain", row.names = FALSE, append = TRUE)
+write.xlsx(tabla_solodominio, "alzheimer/abundancias.xlsx", sheetName = "Domain", row.names = FALSE, append = TRUE)
+
+
+
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+filo_tabla_silva<-read_delim("alzheimer/exported/filo-tabla-silva.tsv", 
+                             delim = "\t", escape_double = FALSE, 
+                             trim_ws = TRUE, skip = 1)
+sample_metadata <- read_table("alzheimer/sample-metadata.tsv")
+
+#cambiar los nombres para la filo y eliminar lo que no sea una filo
+
+filo_tabla_silva$`#OTU ID` <- sub("^.*p__", "", filo_tabla_silva$`#OTU ID`)
+
+
+# Obtener las filas a eliminar basadas en el criterio
+filo_tabla_silva <- filo_tabla_silva[!grepl("Unassigned", filo_tabla_silva$`#OTU ID`), ]
+filo_tabla_silva <- filo_tabla_silva[!grepl("d__Bacteria", filo_tabla_silva$`#OTU ID`), ]
+
+# Eliminar las filas que cumplen con el criterio
+tabla_solofilo <- filo_tabla_silva
+tabla_solofilonumeros<-tabla_solofilo[,-1]
+
+write.xlsx(tabla_solofilo, "alzheimer/lecturas_filo.xlsx", sheetName = "filo", row.names = TRUE, append = TRUE)
+
+
+
+# Crear un vector para almacenar las sumas
+num_columnas <- ncol(tabla_solofilonumeros)
+suma_columnas <- colSums(tabla_solofilonumeros)
+
+# Dividir cada valor en el dataframe tabla_solofilonumeros por la columna suma_columnas
+tabla_abundancias <- sweep(tabla_solofilonumeros, 2, suma_columnas, `/`) * 100
+
+tabla_solofilo <- cbind(tabla_solofilo[, 1], tabla_abundancias)
+
+
+#########################################################################
+#########################Genero########################################
+#########################################################################
+
+
+#gender
+muestras_Male <- sample_metadata %>%
+  filter(gender == "Male") %>%
+  pull("sample-id")
+
+tabla_Male <- tabla_solofilo %>%
+  select(1, all_of(muestras_Male))
+
+#Female
+
+muestras_Female <- sample_metadata %>%
+  filter(gender == "Female") %>%
+  pull("sample-id")
+
+tabla_Female <- tabla_solofilo %>%
+  select(1, all_of(muestras_Female))
+
+numeros_Male<-(tabla_Male[, -1])
+numeros_Male <- unlist(numeros_Male)
+numeros_Male<-as.numeric(numeros_Male)
+shapiro.test(numeros_Male)
+
+numeros_Female<-(tabla_Female[, -1])
+numeros_Female <- unlist(numeros_Female)
+numeros_Female<-as.numeric(numeros_Female)
+shapiro.test(numeros_Female)
+
+
+
+# Crear un vector para almacenar los valores de p
+p_gender <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_Male)) {
+  concentracion_Female <- as.numeric(tabla_Female[n, -1])
+  concentracion_Male <- as.numeric(tabla_Male[n, -1])
+  resultado_gender<- wilcox.test(concentracion_Male, concentracion_Female, exact = FALSE)
+  p_gender <- c(p_gender, resultado_gender$p.value)
+}
+
+resultado_final_gender <- data.frame(tabla_solofilo[, 1], p_value = p_gender)
+
+averages_Female <- data.frame(average = numeric(nrow(tabla_Female)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_Female)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_Female[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_Female
+  averages_Female[i, "average"] <- average_fila
+}
+averages_porcentaje_Female<-averages_Female
+averages_Female<-cbind(tabla_solofilo[,1],averages_porcentaje_Female)
+
+
+##############################################################################
+averages_Male <- data.frame(average = numeric(nrow(tabla_Male)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_Male)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_Male[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_Male
+  averages_Male[i, "average"] <- average_fila
+}
+averages_porcentaje_Male<-averages_Male
+averages_Male<-cbind(tabla_solofilo[,1],averages_porcentaje_Male)
+
+
+#######################################################################
+efecto_gender<-cbind(averages_Female,averages_Male[,-1], resultado_final_gender[,-1] )
+colnames(efecto_gender) <- c("Phylum", "Average female", "Average male", "p-valor test")
+
+filas_significativas_gender <- efecto_gender[efecto_gender$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_gender) == 0) {
+  filas_significativas_gender <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+
+
+##############################################################################
+##############################################################################
+
+########################################################################
+#########################Edad########################################
+#########################################################################
+
+
+#age
+muestras_12 <- sample_metadata %>%
+  filter(age == "12") %>%
+  pull("sample-id")
+
+tabla_12 <- tabla_solofilo %>%
+  select(1, all_of(muestras_12))
+
+#8
+
+muestras_8 <- sample_metadata %>%
+  filter(age == "8") %>%
+  pull("sample-id")
+
+tabla_8 <- tabla_solofilo %>%
+  select(1, all_of(muestras_8))
+
+numeros_12<-(tabla_12[, -1])
+numeros_12 <- unlist(numeros_12)
+numeros_12<-as.numeric(numeros_12)
+shapiro.test(numeros_12)
+
+numeros_8<-(tabla_8[, -1])
+numeros_8 <- unlist(numeros_8)
+numeros_8<-as.numeric(numeros_8)
+shapiro.test(numeros_8)
+
+
+
+# Crear un vector para almacenar los valores de p
+p_age <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12)) {
+  concentracion_8 <- as.numeric(tabla_8[n, -1])
+  concentracion_12 <- as.numeric(tabla_12[n, -1])
+  resultado_age<- wilcox.test(concentracion_12, concentracion_8, exact = FALSE)
+  p_age <- c(p_age, resultado_age$p.value)
+}
+
+resultado_final_age <- data.frame(tabla_solofilo[, 1], p_value = p_age)
+
+averages_8 <- data.frame(average = numeric(nrow(tabla_8)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_8)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_8[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_8
+  averages_8[i, "average"] <- average_fila
+}
+averages_porcentaje_8<-averages_8
+averages_8<-cbind(tabla_solofilo[,1],averages_porcentaje_8)
+
+
+##############################################################################
+averages_12 <- data.frame(average = numeric(nrow(tabla_12)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_12)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_12[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_12
+  averages_12[i, "average"] <- average_fila
+}
+averages_porcentaje_12<-averages_12
+averages_12<-cbind(tabla_solofilo[,1],averages_porcentaje_12)
+
+
+#######################################################################
+efecto_age<-cbind(averages_8,averages_12[,-1], resultado_final_age[,-1] )
+colnames(efecto_age) <- c("Phylum", "average 8 months", "average 12 months", "p-valor test")
+
+filas_significativas_age <- efecto_age[efecto_age$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_age) == 0) {
+  filas_significativas_age <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+
+###################################################################
+#########################GENOTIPO##################################
+#GENOTIPO
+muestras_WT <- sample_metadata %>%
+  filter(genotype == "WT") %>%
+  pull("sample-id")
+
+tabla_WT <- tabla_solofilo %>%
+  select(1, all_of(muestras_WT))
+
+#HTZ
+
+muestras_HTZ <- sample_metadata %>%
+  filter(genotype == "HTZ") %>%
+  pull("sample-id")
+
+tabla_HTZ <- tabla_solofilo %>%
+  select(1, all_of(muestras_HTZ))
+
+
+muestras_HZ <- sample_metadata %>%
+  filter(genotype == "HZ") %>%
+  pull("sample-id")
+
+tabla_HZ <- tabla_solofilo %>%
+  select(1, all_of(muestras_HZ))
+
+
+
+#test estadístico krustall wallis para el GENOTIPO
+
+
+# Identificar filas completas con NA en el dataframe tabla_WT
+filas_completas_na <- complete.cases(tabla_WT)
+
+# Filtrar el dataframe tabla_WT excluyendo las filas con NA
+tabla_WT_filtrado <- tabla_WT[filas_completas_na, ]
+
+# Hacer lo mismo para el dataframe hzt
+tabla_HTZ_filtrado <- tabla_HTZ[filas_completas_na, ]
+
+# Hacer lo mismo para el dataframe hzt
+tabla_HZ_filtrado <- tabla_HZ[filas_completas_na, ]
+
+
+
+p_genotype <- c()  # Vector para almacenar los p-valores
+
+for (n in 1:nrow(tabla_WT_filtrado)) {
+  concentracion_WT <- as.numeric(tabla_WT_filtrado[n, -1])
+  concentracion_HTZ <- as.numeric(tabla_HTZ_filtrado[n, -1])
+  concentracion_HZ <- as.numeric(tabla_HZ_filtrado[n, -1])
+  
+  x <- c(concentracion_HZ, concentracion_HTZ, concentracion_WT)
+  g <- factor(rep(1:3, c(20, 22, 35)),
+              labels = c("concentracion_HZ",
+                         "concentracion_HTZ",
+                         "concentracion_WT"))
+  
+  resultado_genotype <- kruskal.test(x,g)
+  
+  p_genotype <- c(p_genotype, resultado_genotype$p.value)
+}
+
+averages_HTZ <- data.frame(average = numeric(nrow(tabla_HTZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_HTZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_HTZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_HTZ
+  averages_HTZ[i, "average"] <- average_fila
+}
+averages_porcentaje_HTZ<-averages_HTZ
+averages_HTZ<-cbind(tabla_solofilo[,1],averages_porcentaje_HTZ)
+
+
+##############################################################################
+averages_WT <- data.frame(average = numeric(nrow(tabla_WT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_WT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_WT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_WT
+  averages_WT[i, "average"] <- average_fila
+}
+averages_porcentaje_WT<-averages_WT
+averages_WT<-cbind(tabla_solofilo[,1],averages_porcentaje_WT)
+
+##############################################################################
+averages_HZ <- data.frame(average = numeric(nrow(tabla_HZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_HZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_HZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_HZ
+  averages_HZ[i, "average"] <- average_fila
+}
+averages_porcentaje_HZ<-averages_HZ
+averages_HZ<-cbind(tabla_solofilo[,1],averages_porcentaje_HZ)
+
+resultado_final_genotype <- data.frame(tabla_solofilo[, 1], p_value = p_genotype)
+
+
+efecto_genotype<-cbind(averages_HZ,averages_WT[,-1], averages_HTZ[,-1], resultado_final_genotype[,-1])
+colnames(efecto_genotype) <- c("Phylum", "average genotype HZ", "average genotype WT", "average genotype HTZ","p-valor test")
+
+filas_significativas_genotype <- efecto_genotype[efecto_genotype$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_genotype) == 0) {
+  filas_significativas_genotype <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+
+
+
+muestras_8_HZ <- sample_metadata %>%
+  filter(age == "8", genotype == "HZ") %>%
+  pull("sample-id")
+
+tabla_8_HZ <- tabla_solofilo %>%
+  select(1, all_of(muestras_8_HZ))
+
+muestras_8_HTZ <- sample_metadata %>%
+  filter(age == "8", genotype == "HTZ") %>%
+  pull("sample-id")
+
+tabla_8_HTZ <- tabla_solofilo %>%
+  select(1, all_of(muestras_8_HTZ))
+
+
+muestras_8_WT <- sample_metadata %>%
+  filter(age == "8", genotype == "WT") %>%
+  pull("sample-id")
+
+tabla_8_WT <- tabla_solofilo %>%
+  select(1, all_of(muestras_8_WT))
+
+###################################################################
+
+muestras_12_HZ <- sample_metadata %>%
+  filter(age == "12", genotype == "HZ") %>%
+  pull("sample-id")
+
+tabla_12_HZ <- tabla_solofilo %>%
+  select(1, all_of(muestras_12_HZ))
+
+muestras_12_HTZ <- sample_metadata %>%
+  filter(age == "12", genotype == "HTZ") %>%
+  pull("sample-id")
+
+tabla_12_HTZ <- tabla_solofilo %>%
+  select(1, all_of(muestras_12_HTZ))
+
+
+muestras_12_WT <- sample_metadata %>%
+  filter(age == "12", genotype == "WT") %>%
+  pull("sample-id")
+
+tabla_12_WT <- tabla_solofilo %>%
+  select(1, all_of(muestras_12_WT))
+
+
+###################################################################3
+
+
+
+
+# Crear un vector para almacenar los valores de p
+p_age_genotipo <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12_WT)) {
+  concentracion_8_WT <- as.numeric(tabla_8_WT[n, -1])
+  concentracion_12_WT <- as.numeric(tabla_12_WT[n, -1])
+  resultado_age_genotipo<- wilcox.test(concentracion_12_WT, concentracion_8_WT, exact = FALSE)
+  p_age_genotipo <- c(p_age_genotipo, resultado_age_genotipo$p.value)
+}
+
+resultado_final_age_genotipo_WT <- data.frame(tabla_solofilo[, 1], p_value = p_age_genotipo)
+
+average_genotipos_8_WT <- data.frame(average_genotipo = numeric(nrow(tabla_8_WT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_8_WT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_8_WT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_8_WT
+  average_genotipos_8_WT[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_8_WT<-average_genotipos_8_WT
+average_genotipos_8_WT<-cbind(tabla_solofilo[,1],average_genotipos_porcentaje_8_WT)
+
+
+##############################################################################
+average_genotipos_12_WT <- data.frame(average_genotipo = numeric(nrow(tabla_12_WT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_12_WT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_12_WT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_12_WT
+  average_genotipos_12_WT[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_12_WT<-average_genotipos_12_WT
+average_genotipos_12_WT<-cbind(tabla_solofilo[,1],average_genotipos_porcentaje_12_WT)
+
+
+#######################################################################
+efecto_age_genotipo_WT<-cbind(average_genotipos_8_WT,average_genotipos_12_WT[,-1], resultado_final_age_genotipo_WT[,-1] )
+efecto_age_genotipo_WT <- data.frame(lapply(efecto_age_genotipo_WT, function(x) ifelse(is.nan(x), 1, x)))
+
+colnames(efecto_age_genotipo_WT) <- c("Phylum", "Average WT 8 months", "Average WT 12 months", "p-valor test")
+
+filas_significativas_age_genotipo_WT <- efecto_age_genotipo_WT[efecto_age_genotipo_WT$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_age_genotipo_WT) == 0) {
+  filas_significativas_age_genotipo_WT <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+write.xlsx(filas_significativas_age_genotipo_WT, "alzheimer/Significativo_genotipo_edad.xlsx", sheetName = "Phylum Wildtype", row.names = FALSE, append = TRUE)
+
+
+
+# Crear un vector para almacenar los valores de p
+p_age_genotipo <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12_HZ)) {
+  concentracion_8_HZ <- as.numeric(tabla_8_HZ[n, -1])
+  concentracion_12_HZ <- as.numeric(tabla_12_HZ[n, -1])
+  resultado_age_genotipo<- wilcox.test(concentracion_12_HZ, concentracion_8_HZ, exact = FALSE)
+  p_age_genotipo <- c(p_age_genotipo, resultado_age_genotipo$p.value)
+}
+
+resultado_final_age_genotipo_HZ <- data.frame(tabla_solofilo[, 1], p_value = p_age_genotipo)
+
+average_genotipos_8_HZ <- data.frame(average_genotipo = numeric(nrow(tabla_8_HZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_8_HZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_8_HZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_8_HZ
+  average_genotipos_8_HZ[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_8_HZ<-average_genotipos_8_HZ
+average_genotipos_8_HZ<-cbind(tabla_solofilo[,1],average_genotipos_porcentaje_8_HZ)
+
+
+##############################################################################
+average_genotipos_12_HZ <- data.frame(average_genotipo = numeric(nrow(tabla_12_HZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_12_HZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_12_HZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_12_HZ
+  average_genotipos_12_HZ[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_12_HZ<-average_genotipos_12_HZ
+average_genotipos_12_HZ<-cbind(tabla_solofilo[,1],average_genotipos_porcentaje_12_HZ)
+
+
+#######################################################################
+efecto_age_genotipo_HZ<-cbind(average_genotipos_8_HZ,average_genotipos_12_HZ[,-1], resultado_final_age_genotipo_HZ[,-1] )
+efecto_age_genotipo_HZ <- data.frame(lapply(efecto_age_genotipo_HZ, function(x) ifelse(is.nan(x), 1, x)))
+
+colnames(efecto_age_genotipo_HZ) <- c("Phylum", "Average HZ 8 months", "Average HZ 12 months", "p-valor test")
+
+filas_significativas_age_genotipo_HZ <- efecto_age_genotipo_HZ[efecto_age_genotipo_HZ$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_age_genotipo_HZ) == 0) {
+  filas_significativas_age_genotipo_HZ <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+write.xlsx(filas_significativas_age_genotipo_HZ, "alzheimer/Significativo_genotipo_edad.xlsx", sheetName = "Phylum Homozygous", row.names = FALSE, append = TRUE)
+
+
+
+# Crear un vector para almacenar los valores de p
+p_age_genotipo <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12_HTZ)) {
+  concentracion_8_HTZ <- as.numeric(tabla_8_HTZ[n, -1])
+  concentracion_12_HTZ <- as.numeric(tabla_12_HTZ[n, -1])
+  resultado_age_genotipo<- wilcox.test(concentracion_12_HTZ, concentracion_8_HTZ, exact = FALSE)
+  p_age_genotipo <- c(p_age_genotipo, resultado_age_genotipo$p.value)
+}
+
+resultado_final_age_genotipo_HTZ <- data.frame(tabla_solofilo[, 1], p_value = p_age_genotipo)
+
+average_genotipos_8_HTZ <- data.frame(average_genotipo = numeric(nrow(tabla_8_HTZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_8_HTZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_8_HTZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_8_HTZ
+  average_genotipos_8_HTZ[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_8_HTZ<-average_genotipos_8_HTZ
+average_genotipos_8_HTZ<-cbind(tabla_solofilo[,1],average_genotipos_porcentaje_8_HTZ)
+
+
+##############################################################################
+average_genotipos_12_HTZ <- data.frame(average_genotipo = numeric(nrow(tabla_12_HTZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_12_HTZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_12_HTZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_12_HTZ
+  average_genotipos_12_HTZ[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_12_HTZ<-average_genotipos_12_HTZ
+average_genotipos_12_HTZ<-cbind(tabla_solofilo[,1],average_genotipos_porcentaje_12_HTZ)
+
+
+#######################################################################
+efecto_age_genotipo_HTZ<-cbind(average_genotipos_8_HTZ,average_genotipos_12_HTZ[,-1], resultado_final_age_genotipo_HTZ[,-1] )
+efecto_age_genotipo_HTZ <- data.frame(lapply(efecto_age_genotipo_HTZ, function(x) ifelse(is.nan(x), 1, x)))
+colnames(efecto_age_genotipo_HTZ) <- c("Phylum", "Average HTZ 8 months", "Average HTZ 12 months", "p-valor test")
+
+
+
+filas_significativas_age_genotipo_HTZ <- efecto_age_genotipo_HTZ[efecto_age_genotipo_HTZ$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_age_genotipo_HTZ) == 0) {
+  filas_significativas_age_genotipo_HTZ <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+
+write.xlsx(filas_significativas_age_genotipo_HTZ, "alzheimer/Significativo_genotipo_edad.xlsx", sheetName = "Phylum Heterozygous", row.names = FALSE, append = TRUE)
+
+
+write.xlsx(filas_significativas_gender, "alzheimer/Significativo_gender.xlsx", sheetName = "Phylum", row.names = FALSE, append = TRUE)
+write.xlsx(filas_significativas_genotype, "alzheimer/Significativo_genotype.xlsx", sheetName = "Phylum", row.names = FALSE, append = TRUE)
+write.xlsx(filas_significativas_age, "alzheimer/Significativo_age.xlsx", sheetName = "Phylum", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_age, "alzheimer/efecto_age.xlsx", sheetName = "Phylum", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_genotype, "alzheimer/efecto_genotype.xlsx", sheetName = "Phylum", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_gender, "alzheimer/efecto_gender.xlsx", sheetName = "Phylum", row.names = FALSE, append = TRUE)
+write.xlsx(tabla_solofilo, "alzheimer/abundancias.xlsx", sheetName = "Phylum", row.names = FALSE, append = TRUE)
+
+
+bacteroidetes_12_HZ<-subset(tabla_12_HZ, `#OTU ID` == "Firmicutes" | `#OTU ID` == "Bacteroidota")
+division_12_HZ <- rbind(bacteroidetes_12_HZ[1, -1] / bacteroidetes_12_HZ[2, -1])
+division_12_HZ <- cbind(Ratio = "Firmicutes/Bacteroidetes", division_12_HZ)
+write.xlsx(division_12_HZ, "alzheimer/ratio.xlsx", sheetName = "12_HZ", row.names = FALSE, append = TRUE)
+
+
+bacteroidetes_8_HZ<-subset(tabla_8_HZ, `#OTU ID` == "Firmicutes" | `#OTU ID` == "Bacteroidota")
+division_8_HZ <- rbind(bacteroidetes_8_HZ[1, -1] / bacteroidetes_8_HZ[2, -1])
+division_8_HZ <- cbind(Ratio = "Firmicutes/Bacteroidetes", division_8_HZ)
+write.xlsx(division_8_HZ, "alzheimer/ratio.xlsx", sheetName = "8_HZ", row.names = FALSE, append = TRUE)
+
+bacteroidetes_12_WT<-subset(tabla_12_WT, `#OTU ID` == "Firmicutes" | `#OTU ID` == "Bacteroidota")
+division_12_WT <- rbind(bacteroidetes_12_WT[1, -1] / bacteroidetes_12_WT[2, -1])
+division_12_WT <- cbind(Ratio = "Firmicutes/Bacteroidetes", division_12_WT)
+write.xlsx(division_12_WT, "alzheimer/ratio.xlsx", sheetName = "12_WT", row.names = FALSE, append = TRUE)
+
+bacteroidetes_8_WT<-subset(tabla_8_WT, `#OTU ID` == "Firmicutes" | `#OTU ID` == "Bacteroidota")
+division_8_WT <- rbind(bacteroidetes_8_WT[1, -1] / bacteroidetes_8_WT[2, -1])
+division_8_WT <- cbind(Ratio = "Firmicutes/Bacteroidetes", division_8_WT)
+write.xlsx(division_8_WT, "alzheimer/ratio.xlsx", sheetName = "8_WT", row.names = FALSE, append = TRUE)
+
+bacteroidetes_12_HTZ<-subset(tabla_12_HTZ, `#OTU ID` == "Firmicutes" | `#OTU ID` == "Bacteroidota")
+division_12_HTZ <- rbind(bacteroidetes_12_HTZ[1, -1] / bacteroidetes_12_HTZ[2, -1])
+division_12_HTZ <- cbind(Ratio = "Firmicutes/Bacteroidetes", division_12_HTZ)
+write.xlsx(division_12_HTZ, "alzheimer/ratio.xlsx", sheetName = "12_HTZ", row.names = FALSE, append = TRUE)
+
+bacteroidetes_8_HTZ<-subset(tabla_8_HTZ, `#OTU ID` == "Firmicutes" | `#OTU ID` == "Bacteroidota")
+division_8_HTZ <- rbind(bacteroidetes_8_HTZ[1, -1] / bacteroidetes_8_HTZ[2, -1])
+division_8_HTZ <- cbind(Ratio = "Firmicutes/Bacteroidetes", division_8_HTZ)
+write.xlsx(division_8_HTZ, "alzheimer/ratio.xlsx", sheetName = "8_HTZ", row.names = FALSE, append = TRUE)
+
+bacteroidetes_female<-subset(tabla_Female,  `#OTU ID` == "Firmicutes" | `#OTU ID` == "Bacteroidota" )
+bacteroidetes_male<-subset(tabla_Male,  `#OTU ID` == "Firmicutes" | `#OTU ID` == "Bacteroidota" )
+
+division_female <- rbind(bacteroidetes_female[1, -1] / bacteroidetes_female[2, -1])
+division_male <- rbind(bacteroidetes_male[1, -1] / bacteroidetes_male[2, -1])
+division_female<- cbind(Ratio = "Firmicutes/Bacteroidetes", division_female)
+division_male<- cbind(Ratio = "Firmicutes/Bacteroidetes", division_male)
+write.xlsx(division_female, "alzheimer/ratio.xlsx", sheetName = "Female", row.names = FALSE, append = TRUE)
+write.xlsx(division_male, "alzheimer/ratio.xlsx", sheetName = "Male", row.names = FALSE, append = TRUE)
+
+bacteroidetes_HZ<-subset(tabla_HZ, `#OTU ID` == "Firmicutes" | `#OTU ID` == "Bacteroidota")
+division_HZ <- rbind(bacteroidetes_HZ[1, -1] / bacteroidetes_HZ[2, -1])
+division_HZ <- cbind(Ratio = "Firmicutes/Bacteroidetes", division_HZ)
+write.xlsx(division_HZ, "alzheimer/ratio.xlsx", sheetName = "HZ", row.names = FALSE, append = TRUE)
+
+bacteroidetes_WT<-subset(tabla_WT, `#OTU ID` == "Firmicutes" | `#OTU ID` == "Bacteroidota")
+division_WT <- rbind(bacteroidetes_WT[1, -1] / bacteroidetes_WT[2, -1])
+division_WT <- cbind(Ratio = "Firmicutes/Bacteroidetes", division_WT)
+write.xlsx(division_WT, "alzheimer/ratio.xlsx", sheetName = "WT", row.names = FALSE, append = TRUE)
+
+bacteroidetes_HTZ<-subset(tabla_HTZ, `#OTU ID` == "Firmicutes" | `#OTU ID` == "Bacteroidota")
+division_HTZ <- rbind(bacteroidetes_HTZ[1, -1] / bacteroidetes_HTZ[2, -1])
+division_HTZ <- cbind(Ratio = "Firmicutes/Bacteroidetes", division_HTZ)
+write.xlsx(division_HTZ, "alzheimer/ratio.xlsx", sheetName = "HTZ", row.names = FALSE, append = TRUE)
+
+bacteroidetes_8<-subset(tabla_8, `#OTU ID` == "Firmicutes" | `#OTU ID` == "Bacteroidota")
+division_8 <- rbind(bacteroidetes_8[1, -1] / bacteroidetes_8[2, -1])
+division_8 <- cbind(Ratio = "Firmicutes/Bacteroidetes", division_8)
+write.xlsx(division_8, "alzheimer/ratio.xlsx", sheetName = "8", row.names = FALSE, append = TRUE)
+
+bacteroidetes_12<-subset(tabla_12, `#OTU ID` == "Firmicutes" | `#OTU ID` == "Bacteroidota")
+division_12 <- rbind(bacteroidetes_12[1, -1] / bacteroidetes_12[2, -1])
+division_12 <- cbind(Ratio = "Firmicutes/Bacteroidetes", division_12)
+write.xlsx(division_12, "alzheimer/ratio.xlsx", sheetName = "12", row.names = FALSE, append = TRUE)
+
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+clase_tabla_silva<-read_delim("alzheimer/exported/clase-tabla-silva.tsv", 
+                              delim = "\t", escape_double = FALSE, 
+                              trim_ws = TRUE, skip = 1)
+sample_metadata <- read_table("alzheimer/sample-metadata.tsv")
+
+#cambiar los nombres para la clase y eliminar lo que no sea una clase
+
+clase_tabla_silva$`#OTU ID` <- sub("^.*c__", "", clase_tabla_silva$`#OTU ID`)
+
+
+# Obtener las filas a eliminar basadas en el criterio
+filas_a_eliminar <- grepl("^d__|^uncultured|^Unassigned;__;__", clase_tabla_silva$`#OTU ID`)
+
+
+
+# Eliminar las filas que cumplen con el criterio
+tabla_soloclase <- clase_tabla_silva[!filas_a_eliminar, ]
+tabla_soloclasenumeros<-tabla_soloclase[,-1]
+write.xlsx(tabla_soloclase, "alzheimer/lecturas_clase.xlsx", sheetName = "Class", row.names = TRUE, append = TRUE)
+
+
+# Crear un vector para almacenar las sumas
+num_columnas <- ncol(tabla_soloclasenumeros)
+suma_columnas <- colSums(tabla_soloclasenumeros)
+
+# Dividir cada valor en el dataframe tabla_soloclasenumeros por la columna suma_columnas
+tabla_abundancias <- sweep(tabla_soloclasenumeros, 2, suma_columnas, `/`) * 100
+
+tabla_soloclase <- cbind(tabla_soloclase[, 1], tabla_abundancias)
+
+
+#########################################################################
+#########################Genero########################################
+#########################################################################
+
+
+#gender
+muestras_Male <- sample_metadata %>%
+  filter(gender == "Male") %>%
+  pull("sample-id")
+
+tabla_Male <- tabla_soloclase %>%
+  select(1, all_of(muestras_Male))
+
+#Female
+
+muestras_Female <- sample_metadata %>%
+  filter(gender == "Female") %>%
+  pull("sample-id")
+
+tabla_Female <- tabla_soloclase %>%
+  select(1, all_of(muestras_Female))
+
+numeros_Male<-(tabla_Male[, -1])
+numeros_Male <- unlist(numeros_Male)
+numeros_Male<-as.numeric(numeros_Male)
+shapiro.test(numeros_Male)
+
+numeros_Female<-(tabla_Female[, -1])
+numeros_Female <- unlist(numeros_Female)
+numeros_Female<-as.numeric(numeros_Female)
+shapiro.test(numeros_Female)
+
+
+
+# Crear un vector para almacenar los valores de p
+p_gender <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_Male)) {
+  concentracion_Female <- as.numeric(tabla_Female[n, -1])
+  concentracion_Male <- as.numeric(tabla_Male[n, -1])
+  resultado_gender<- wilcox.test(concentracion_Male, concentracion_Female, exact = FALSE)
+  p_gender <- c(p_gender, resultado_gender$p.value)
+}
+
+resultado_final_gender <- data.frame(tabla_soloclase[, 1], p_value = p_gender)
+
+averages_Female <- data.frame(average = numeric(nrow(tabla_Female)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_Female)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_Female[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_Female
+  averages_Female[i, "average"] <- average_fila
+}
+averages_porcentaje_Female<-averages_Female
+averages_Female<-cbind(tabla_soloclase[,1],averages_porcentaje_Female)
+
+
+##############################################################################
+averages_Male <- data.frame(average = numeric(nrow(tabla_Male)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_Male)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_Male[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_Male
+  averages_Male[i, "average"] <- average_fila
+}
+averages_porcentaje_Male<-averages_Male
+averages_Male<-cbind(tabla_soloclase[,1],averages_porcentaje_Male)
+
+
+#######################################################################
+efecto_gender<-cbind(averages_Female,averages_Male[,-1], resultado_final_gender[,-1] )
+colnames(efecto_gender) <- c("Class", "Average female", "Average male", "p-valor test")
+
+filas_significativas_gender <- efecto_gender[efecto_gender$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_gender) == 0) {
+  filas_significativas_gender <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+
+
+##############################################################################
+##############################################################################
+
+########################################################################
+#########################Edad########################################
+#########################################################################
+
+
+#age
+muestras_12 <- sample_metadata %>%
+  filter(age == "12") %>%
+  pull("sample-id")
+
+tabla_12 <- tabla_soloclase %>%
+  select(1, all_of(muestras_12))
+
+#8
+
+muestras_8 <- sample_metadata %>%
+  filter(age == "8") %>%
+  pull("sample-id")
+
+tabla_8 <- tabla_soloclase %>%
+  select(1, all_of(muestras_8))
+
+numeros_12<-(tabla_12[, -1])
+numeros_12 <- unlist(numeros_12)
+numeros_12<-as.numeric(numeros_12)
+shapiro.test(numeros_12)
+
+numeros_8<-(tabla_8[, -1])
+numeros_8 <- unlist(numeros_8)
+numeros_8<-as.numeric(numeros_8)
+shapiro.test(numeros_8)
+
+
+
+# Crear un vector para almacenar los valores de p
+p_age <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12)) {
+  concentracion_8 <- as.numeric(tabla_8[n, -1])
+  concentracion_12 <- as.numeric(tabla_12[n, -1])
+  resultado_age<- wilcox.test(concentracion_12, concentracion_8, exact = FALSE)
+  p_age <- c(p_age, resultado_age$p.value)
+}
+
+resultado_final_age <- data.frame(tabla_soloclase[, 1], p_value = p_age)
+
+averages_8 <- data.frame(average = numeric(nrow(tabla_8)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_8)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_8[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_8
+  averages_8[i, "average"] <- average_fila
+}
+averages_porcentaje_8<-averages_8
+averages_8<-cbind(tabla_soloclase[,1],averages_porcentaje_8)
+
+
+##############################################################################
+averages_12 <- data.frame(average = numeric(nrow(tabla_12)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_12)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_12[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_12
+  averages_12[i, "average"] <- average_fila
+}
+averages_porcentaje_12<-averages_12
+averages_12<-cbind(tabla_soloclase[,1],averages_porcentaje_12)
+
+
+#######################################################################
+efecto_age<-cbind(averages_8,averages_12[,-1], resultado_final_age[,-1] )
+colnames(efecto_age) <- c("Class", "average 8 months", "average 12 months", "p-valor test")
+
+filas_significativas_age <- efecto_age[efecto_age$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_age) == 0) {
+  filas_significativas_age <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+
+###################################################################
+#########################GENOTIPO##################################
+#GENOTIPO
+muestras_WT <- sample_metadata %>%
+  filter(genotype == "WT") %>%
+  pull("sample-id")
+
+tabla_WT <- tabla_soloclase %>%
+  select(1, all_of(muestras_WT))
+
+#HTZ
+
+muestras_HTZ <- sample_metadata %>%
+  filter(genotype == "HTZ") %>%
+  pull("sample-id")
+
+tabla_HTZ <- tabla_soloclase %>%
+  select(1, all_of(muestras_HTZ))
+
+
+muestras_HZ <- sample_metadata %>%
+  filter(genotype == "HZ") %>%
+  pull("sample-id")
+
+tabla_HZ <- tabla_soloclase %>%
+  select(1, all_of(muestras_HZ))
+
+
+
+#test estadístico krustall wallis para el GENOTIPO
+
+
+# Identificar filas completas con NA en el dataframe tabla_WT
+filas_completas_na <- complete.cases(tabla_WT)
+
+# Filtrar el dataframe tabla_WT excluyendo las filas con NA
+tabla_WT_filtrado <- tabla_WT[filas_completas_na, ]
+
+# Hacer lo mismo para el dataframe hzt
+tabla_HTZ_filtrado <- tabla_HTZ[filas_completas_na, ]
+
+# Hacer lo mismo para el dataframe hzt
+tabla_HZ_filtrado <- tabla_HZ[filas_completas_na, ]
+
+
+
+p_genotype <- c()  # Vector para almacenar los p-valores
+
+for (n in 1:nrow(tabla_WT_filtrado)) {
+  concentracion_WT <- as.numeric(tabla_WT_filtrado[n, -1])
+  concentracion_HTZ <- as.numeric(tabla_HTZ_filtrado[n, -1])
+  concentracion_HZ <- as.numeric(tabla_HZ_filtrado[n, -1])
+  
+  x <- c(concentracion_HZ, concentracion_HTZ, concentracion_WT)
+  g <- factor(rep(1:3, c(20, 22, 35)),
+              labels = c("concentracion_HZ",
+                         "concentracion_HTZ",
+                         "concentracion_WT"))
+  
+  resultado_genotype <- kruskal.test(x,g)
+  
+  p_genotype <- c(p_genotype, resultado_genotype$p.value)
+}
+
+averages_HTZ <- data.frame(average = numeric(nrow(tabla_HTZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_HTZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_HTZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_HTZ
+  averages_HTZ[i, "average"] <- average_fila
+}
+averages_porcentaje_HTZ<-averages_HTZ
+averages_HTZ<-cbind(tabla_soloclase[,1],averages_porcentaje_HTZ)
+
+
+##############################################################################
+averages_WT <- data.frame(average = numeric(nrow(tabla_WT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_WT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_WT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_WT
+  averages_WT[i, "average"] <- average_fila
+}
+averages_porcentaje_WT<-averages_WT
+averages_WT<-cbind(tabla_soloclase[,1],averages_porcentaje_WT)
+
+##############################################################################
+averages_HZ <- data.frame(average = numeric(nrow(tabla_HZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_HZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_HZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_HZ
+  averages_HZ[i, "average"] <- average_fila
+}
+averages_porcentaje_HZ<-averages_HZ
+averages_HZ<-cbind(tabla_soloclase[,1],averages_porcentaje_HZ)
+
+resultado_final_genotype <- data.frame(tabla_soloclase[, 1], p_value = p_genotype)
+
+
+efecto_genotype<-cbind(averages_HZ,averages_WT[,-1], averages_HTZ[,-1], resultado_final_genotype[,-1])
+colnames(efecto_genotype) <- c("Class", "average genotype HZ", "average genotype WT", "average genotype HTZ","p-valor test")
+
+filas_significativas_genotype <- efecto_genotype[efecto_genotype$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_genotype) == 0) {
+  filas_significativas_genotype <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+
+
+write.xlsx(filas_significativas_gender, "alzheimer/Significativo_gender.xlsx", sheetName = "Class", row.names = FALSE, append = TRUE)
+write.xlsx(filas_significativas_genotype, "alzheimer/Significativo_genotype.xlsx", sheetName = "Class", row.names = FALSE, append = TRUE)
+write.xlsx(filas_significativas_age, "alzheimer/Significativo_age.xlsx", sheetName = "Class", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_age, "alzheimer/efecto_age.xlsx", sheetName = "Class", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_genotype, "alzheimer/efecto_genotype.xlsx", sheetName = "Class", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_gender, "alzheimer/efecto_gender.xlsx", sheetName = "Class", row.names = FALSE, append = TRUE)
+write.xlsx(tabla_soloclase, "alzheimer/abundancias.xlsx", sheetName = "Class", row.names = FALSE, append = TRUE)
+muestras_8_HZ <- sample_metadata %>%
+  filter(age == "8", genotype == "HZ") %>%
+  pull("sample-id")
+
+tabla_8_HZ <- tabla_soloclase %>%
+  select(1, all_of(muestras_8_HZ))
+
+muestras_8_HTZ <- sample_metadata %>%
+  filter(age == "8", genotype == "HTZ") %>%
+  pull("sample-id")
+
+tabla_8_HTZ <- tabla_soloclase %>%
+  select(1, all_of(muestras_8_HTZ))
+
+
+muestras_8_WT <- sample_metadata %>%
+  filter(age == "8", genotype == "WT") %>%
+  pull("sample-id")
+
+tabla_8_WT <- tabla_soloclase %>%
+  select(1, all_of(muestras_8_WT))
+
+###################################################################
+
+muestras_12_HZ <- sample_metadata %>%
+  filter(age == "12", genotype == "HZ") %>%
+  pull("sample-id")
+
+tabla_12_HZ <- tabla_soloclase %>%
+  select(1, all_of(muestras_12_HZ))
+
+muestras_12_HTZ <- sample_metadata %>%
+  filter(age == "12", genotype == "HTZ") %>%
+  pull("sample-id")
+
+tabla_12_HTZ <- tabla_soloclase %>%
+  select(1, all_of(muestras_12_HTZ))
+
+
+muestras_12_WT <- sample_metadata %>%
+  filter(age == "12", genotype == "WT") %>%
+  pull("sample-id")
+
+tabla_12_WT <- tabla_soloclase %>%
+  select(1, all_of(muestras_12_WT))
+
+
+###################################################################3
+
+
+
+
+# Crear un vector para almacenar los valores de p
+p_age_genotipo <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12_WT)) {
+  concentracion_8_WT <- as.numeric(tabla_8_WT[n, -1])
+  concentracion_12_WT <- as.numeric(tabla_12_WT[n, -1])
+  resultado_age_genotipo<- wilcox.test(concentracion_12_WT, concentracion_8_WT, exact = FALSE)
+  p_age_genotipo <- c(p_age_genotipo, resultado_age_genotipo$p.value)
+}
+
+resultado_final_age_genotipo_WT <- data.frame(tabla_soloclase[, 1], p_value = p_age_genotipo)
+
+average_genotipos_8_WT <- data.frame(average_genotipo = numeric(nrow(tabla_8_WT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_8_WT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_8_WT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_8_WT
+  average_genotipos_8_WT[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_8_WT<-average_genotipos_8_WT
+average_genotipos_8_WT<-cbind(tabla_soloclase[,1],average_genotipos_porcentaje_8_WT)
+
+
+##############################################################################
+average_genotipos_12_WT <- data.frame(average_genotipo = numeric(nrow(tabla_12_WT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_12_WT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_12_WT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_12_WT
+  average_genotipos_12_WT[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_12_WT<-average_genotipos_12_WT
+average_genotipos_12_WT<-cbind(tabla_soloclase[,1],average_genotipos_porcentaje_12_WT)
+
+
+#######################################################################
+efecto_age_genotipo_WT<-cbind(average_genotipos_8_WT,average_genotipos_12_WT[,-1], resultado_final_age_genotipo_WT[,-1] )
+efecto_age_genotipo_WT <- data.frame(lapply(efecto_age_genotipo_WT, function(x) ifelse(is.nan(x), 1, x)))
+
+colnames(efecto_age_genotipo_WT) <- c("Class", "Average WT 8 months", "Average WT 12 months", "p-valor test")
+
+filas_significativas_age_genotipo_WT <- efecto_age_genotipo_WT[efecto_age_genotipo_WT$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_age_genotipo_WT) == 0) {
+  filas_significativas_age_genotipo_WT <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+write.xlsx(filas_significativas_age_genotipo_WT, "alzheimer/Significativo_genotipo_edad.xlsx", sheetName = "Class Wildtype", row.names = FALSE, append = TRUE)
+
+
+
+# Crear un vector para almacenar los valores de p
+p_age_genotipo <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12_HZ)) {
+  concentracion_8_HZ <- as.numeric(tabla_8_HZ[n, -1])
+  concentracion_12_HZ <- as.numeric(tabla_12_HZ[n, -1])
+  resultado_age_genotipo<- wilcox.test(concentracion_12_HZ, concentracion_8_HZ, exact = FALSE)
+  p_age_genotipo <- c(p_age_genotipo, resultado_age_genotipo$p.value)
+}
+
+resultado_final_age_genotipo_HZ <- data.frame(tabla_soloclase[, 1], p_value = p_age_genotipo)
+
+average_genotipos_8_HZ <- data.frame(average_genotipo = numeric(nrow(tabla_8_HZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_8_HZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_8_HZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_8_HZ
+  average_genotipos_8_HZ[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_8_HZ<-average_genotipos_8_HZ
+average_genotipos_8_HZ<-cbind(tabla_soloclase[,1],average_genotipos_porcentaje_8_HZ)
+
+
+##############################################################################
+average_genotipos_12_HZ <- data.frame(average_genotipo = numeric(nrow(tabla_12_HZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_12_HZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_12_HZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_12_HZ
+  average_genotipos_12_HZ[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_12_HZ<-average_genotipos_12_HZ
+average_genotipos_12_HZ<-cbind(tabla_soloclase[,1],average_genotipos_porcentaje_12_HZ)
+
+
+#######################################################################
+efecto_age_genotipo_HZ<-cbind(average_genotipos_8_HZ,average_genotipos_12_HZ[,-1], resultado_final_age_genotipo_HZ[,-1] )
+efecto_age_genotipo_HZ <- data.frame(lapply(efecto_age_genotipo_HZ, function(x) ifelse(is.nan(x), 1, x)))
+
+colnames(efecto_age_genotipo_HZ) <- c("Class", "Average HZ 8 months", "Average HZ 12 months", "p-valor test")
+
+filas_significativas_age_genotipo_HZ <- efecto_age_genotipo_HZ[efecto_age_genotipo_HZ$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_age_genotipo_HZ) == 0) {
+  filas_significativas_age_genotipo_HZ <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+write.xlsx(filas_significativas_age_genotipo_HZ, "alzheimer/Significativo_genotipo_edad.xlsx", sheetName = "Class Homozygous", row.names = FALSE, append = TRUE)
+
+
+
+# Crear un vector para almacenar los valores de p
+p_age_genotipo <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12_HTZ)) {
+  concentracion_8_HTZ <- as.numeric(tabla_8_HTZ[n, -1])
+  concentracion_12_HTZ <- as.numeric(tabla_12_HTZ[n, -1])
+  resultado_age_genotipo<- wilcox.test(concentracion_12_HTZ, concentracion_8_HTZ, exact = FALSE)
+  p_age_genotipo <- c(p_age_genotipo, resultado_age_genotipo$p.value)
+}
+
+resultado_final_age_genotipo_HTZ <- data.frame(tabla_soloclase[, 1], p_value = p_age_genotipo)
+
+average_genotipos_8_HTZ <- data.frame(average_genotipo = numeric(nrow(tabla_8_HTZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_8_HTZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_8_HTZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_8_HTZ
+  average_genotipos_8_HTZ[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_8_HTZ<-average_genotipos_8_HTZ
+average_genotipos_8_HTZ<-cbind(tabla_soloclase[,1],average_genotipos_porcentaje_8_HTZ)
+
+
+##############################################################################
+average_genotipos_12_HTZ <- data.frame(average_genotipo = numeric(nrow(tabla_12_HTZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_12_HTZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_12_HTZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_12_HTZ
+  average_genotipos_12_HTZ[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_12_HTZ<-average_genotipos_12_HTZ
+average_genotipos_12_HTZ<-cbind(tabla_soloclase[,1],average_genotipos_porcentaje_12_HTZ)
+
+
+#######################################################################
+efecto_age_genotipo_HTZ<-cbind(average_genotipos_8_HTZ,average_genotipos_12_HTZ[,-1], resultado_final_age_genotipo_HTZ[,-1] )
+efecto_age_genotipo_HTZ <- data.frame(lapply(efecto_age_genotipo_HTZ, function(x) ifelse(is.nan(x), 1, x)))
+colnames(efecto_age_genotipo_HTZ) <- c("Class", "Average HTZ 8 months", "Average HTZ 12 months", "p-valor test")
+
+
+
+filas_significativas_age_genotipo_HTZ <- efecto_age_genotipo_HTZ[efecto_age_genotipo_HTZ$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_age_genotipo_HTZ) == 0) {
+  filas_significativas_age_genotipo_HTZ <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+
+write.xlsx(filas_significativas_age_genotipo_HTZ, "alzheimer/Significativo_genotipo_edad.xlsx", sheetName = "Class Heterozygous", row.names = FALSE, append = TRUE)
+
+
+
+
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+orden_tabla_silva<-read_delim("alzheimer/exported/orden-tabla-silva.tsv", 
+                              delim = "\t", escape_double = FALSE, 
+                              trim_ws = TRUE, skip = 1)
+sample_metadata <- read_table("alzheimer/sample-metadata.tsv")
+
+#cambiar los nombres para la orden y eliminar lo que no sea una orden
+
+orden_tabla_silva$`#OTU ID` <- sub("^.*o__", "", orden_tabla_silva$`#OTU ID`)
+
+
+# Obtener las filas a eliminar basadas en el criterio
+filas_a_eliminar <- grepl("^d__|^uncultured|^Unassigned;__;__", orden_tabla_silva$`#OTU ID`)
+
+
+# Eliminar las filas que cumplen con el criterio
+tabla_soloorden <- orden_tabla_silva[!filas_a_eliminar, ]
+tabla_soloordennumeros<-tabla_soloorden[,-1]
+write.xlsx(tabla_soloorden, "alzheimer/lecturas_orden.xlsx", sheetName = "Order", row.names = TRUE, append = TRUE)
+
+
+# Crear un vector para almacenar las sumas
+num_columnas <- ncol(tabla_soloordennumeros)
+suma_columnas <- colSums(tabla_soloordennumeros)
+
+# Dividir cada valor en el dataframe tabla_soloordennumeros por la columna suma_columnas
+tabla_abundancias <- sweep(tabla_soloordennumeros, 2, suma_columnas, `/`) * 100
+
+tabla_soloorden <- cbind(tabla_soloorden[, 1], tabla_abundancias)
+
+
+#########################################################################
+#########################Genero########################################
+#########################################################################
+
+
+#gender
+muestras_Male <- sample_metadata %>%
+  filter(gender == "Male") %>%
+  pull("sample-id")
+
+tabla_Male <- tabla_soloorden %>%
+  select(1, all_of(muestras_Male))
+
+#Female
+
+muestras_Female <- sample_metadata %>%
+  filter(gender == "Female") %>%
+  pull("sample-id")
+
+tabla_Female <- tabla_soloorden %>%
+  select(1, all_of(muestras_Female))
+
+numeros_Male<-(tabla_Male[, -1])
+numeros_Male <- unlist(numeros_Male)
+numeros_Male<-as.numeric(numeros_Male)
+shapiro.test(numeros_Male)
+
+numeros_Female<-(tabla_Female[, -1])
+numeros_Female <- unlist(numeros_Female)
+numeros_Female<-as.numeric(numeros_Female)
+shapiro.test(numeros_Female)
+
+
+
+# Crear un vector para almacenar los valores de p
+p_gender <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_Male)) {
+  concentracion_Female <- as.numeric(tabla_Female[n, -1])
+  concentracion_Male <- as.numeric(tabla_Male[n, -1])
+  resultado_gender<- wilcox.test(concentracion_Male, concentracion_Female, exact = FALSE)
+  p_gender <- c(p_gender, resultado_gender$p.value)
+}
+
+resultado_final_gender <- data.frame(tabla_soloorden[, 1], p_value = p_gender)
+
+averages_Female <- data.frame(average = numeric(nrow(tabla_Female)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_Female)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_Female[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_Female
+  averages_Female[i, "average"] <- average_fila
+}
+averages_porcentaje_Female<-averages_Female
+averages_Female<-cbind(tabla_soloorden[,1],averages_porcentaje_Female)
+
+
+##############################################################################
+averages_Male <- data.frame(average = numeric(nrow(tabla_Male)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_Male)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_Male[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_Male
+  averages_Male[i, "average"] <- average_fila
+}
+averages_porcentaje_Male<-averages_Male
+averages_Male<-cbind(tabla_soloorden[,1],averages_porcentaje_Male)
+
+
+#######################################################################
+efecto_gender<-cbind(averages_Female,averages_Male[,-1], resultado_final_gender[,-1] )
+colnames(efecto_gender) <- c("Order", "Average female", "Average male", "p-valor test")
+
+filas_significativas_gender <- efecto_gender[efecto_gender$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_gender) == 0) {
+  filas_significativas_gender <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+
+
+##############################################################################
+##############################################################################
+
+########################################################################
+#########################Edad########################################
+#########################################################################
+
+
+#age
+muestras_12 <- sample_metadata %>%
+  filter(age == "12") %>%
+  pull("sample-id")
+
+tabla_12 <- tabla_soloorden %>%
+  select(1, all_of(muestras_12))
+
+#8
+
+muestras_8 <- sample_metadata %>%
+  filter(age == "8") %>%
+  pull("sample-id")
+
+tabla_8 <- tabla_soloorden %>%
+  select(1, all_of(muestras_8))
+
+numeros_12<-(tabla_12[, -1])
+numeros_12 <- unlist(numeros_12)
+numeros_12<-as.numeric(numeros_12)
+shapiro.test(numeros_12)
+
+numeros_8<-(tabla_8[, -1])
+numeros_8 <- unlist(numeros_8)
+numeros_8<-as.numeric(numeros_8)
+shapiro.test(numeros_8)
+
+
+
+# Crear un vector para almacenar los valores de p
+p_age <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12)) {
+  concentracion_8 <- as.numeric(tabla_8[n, -1])
+  concentracion_12 <- as.numeric(tabla_12[n, -1])
+  resultado_age<- wilcox.test(concentracion_12, concentracion_8, exact = FALSE)
+  p_age <- c(p_age, resultado_age$p.value)
+}
+
+resultado_final_age <- data.frame(tabla_soloorden[, 1], p_value = p_age)
+
+averages_8 <- data.frame(average = numeric(nrow(tabla_8)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_8)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_8[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_8
+  averages_8[i, "average"] <- average_fila
+}
+averages_porcentaje_8<-averages_8
+averages_8<-cbind(tabla_soloorden[,1],averages_porcentaje_8)
+
+
+##############################################################################
+averages_12 <- data.frame(average = numeric(nrow(tabla_12)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_12)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_12[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_12
+  averages_12[i, "average"] <- average_fila
+}
+averages_porcentaje_12<-averages_12
+averages_12<-cbind(tabla_soloorden[,1],averages_porcentaje_12)
+
+
+#######################################################################
+efecto_age<-cbind(averages_8,averages_12[,-1], resultado_final_age[,-1] )
+colnames(efecto_age) <- c("Order", "average 8 months", "average 12 months", "p-valor test")
+
+filas_significativas_age <- efecto_age[efecto_age$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_age) == 0) {
+  filas_significativas_age <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+
+###################################################################
+#########################GENOTIPO##################################
+#GENOTIPO
+muestras_WT <- sample_metadata %>%
+  filter(genotype == "WT") %>%
+  pull("sample-id")
+
+tabla_WT <- tabla_soloorden %>%
+  select(1, all_of(muestras_WT))
+
+#HTZ
+
+muestras_HTZ <- sample_metadata %>%
+  filter(genotype == "HTZ") %>%
+  pull("sample-id")
+
+tabla_HTZ <- tabla_soloorden %>%
+  select(1, all_of(muestras_HTZ))
+
+
+muestras_HZ <- sample_metadata %>%
+  filter(genotype == "HZ") %>%
+  pull("sample-id")
+
+tabla_HZ <- tabla_soloorden %>%
+  select(1, all_of(muestras_HZ))
+
+
+
+#test estadístico krustall wallis para el GENOTIPO
+
+
+# Identificar filas completas con NA en el dataframe tabla_WT
+filas_completas_na <- complete.cases(tabla_WT)
+
+# Filtrar el dataframe tabla_WT excluyendo las filas con NA
+tabla_WT_filtrado <- tabla_WT[filas_completas_na, ]
+
+# Hacer lo mismo para el dataframe hzt
+tabla_HTZ_filtrado <- tabla_HTZ[filas_completas_na, ]
+
+# Hacer lo mismo para el dataframe hzt
+tabla_HZ_filtrado <- tabla_HZ[filas_completas_na, ]
+
+
+
+p_genotype <- c()  # Vector para almacenar los p-valores
+
+for (n in 1:nrow(tabla_WT_filtrado)) {
+  concentracion_WT <- as.numeric(tabla_WT_filtrado[n, -1])
+  concentracion_HTZ <- as.numeric(tabla_HTZ_filtrado[n, -1])
+  concentracion_HZ <- as.numeric(tabla_HZ_filtrado[n, -1])
+  
+  x <- c(concentracion_HZ, concentracion_HTZ, concentracion_WT)
+  g <- factor(rep(1:3, c(20, 22, 35)),
+              labels = c("concentracion_HZ",
+                         "concentracion_HTZ",
+                         "concentracion_WT"))
+  
+  resultado_genotype <- kruskal.test(x,g)
+  
+  p_genotype <- c(p_genotype, resultado_genotype$p.value)
+}
+
+averages_HTZ <- data.frame(average = numeric(nrow(tabla_HTZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_HTZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_HTZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_HTZ
+  averages_HTZ[i, "average"] <- average_fila
+}
+averages_porcentaje_HTZ<-averages_HTZ
+averages_HTZ<-cbind(tabla_soloorden[,1],averages_porcentaje_HTZ)
+
+
+##############################################################################
+averages_WT <- data.frame(average = numeric(nrow(tabla_WT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_WT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_WT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_WT
+  averages_WT[i, "average"] <- average_fila
+}
+averages_porcentaje_WT<-averages_WT
+averages_WT<-cbind(tabla_soloorden[,1],averages_porcentaje_WT)
+
+##############################################################################
+averages_HZ <- data.frame(average = numeric(nrow(tabla_HZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_HZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_HZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_HZ
+  averages_HZ[i, "average"] <- average_fila
+}
+averages_porcentaje_HZ<-averages_HZ
+averages_HZ<-cbind(tabla_soloorden[,1],averages_porcentaje_HZ)
+
+resultado_final_genotype <- data.frame(tabla_soloorden[, 1], p_value = p_genotype)
+
+
+efecto_genotype<-cbind(averages_HZ,averages_WT[,-1], averages_HTZ[,-1], resultado_final_genotype[,-1])
+colnames(efecto_genotype) <- c("Order", "average genotype HZ", "average genotype WT", "average genotype HTZ","p-valor test")
+
+filas_significativas_genotype <- efecto_genotype[efecto_genotype$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_genotype) == 0) {
+  filas_significativas_genotype <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+
+
+write.xlsx(filas_significativas_gender, "alzheimer/Significativo_gender.xlsx", sheetName = "Order", row.names = FALSE, append = TRUE)
+write.xlsx(filas_significativas_genotype, "alzheimer/Significativo_genotype.xlsx", sheetName = "Order", row.names = FALSE, append = TRUE)
+write.xlsx(filas_significativas_age, "alzheimer/Significativo_age.xlsx", sheetName = "Order", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_age, "alzheimer/efecto_age.xlsx", sheetName = "Order", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_genotype, "alzheimer/efecto_genotype.xlsx", sheetName = "Order", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_gender, "alzheimer/efecto_gender.xlsx", sheetName = "Order", row.names = FALSE, append = TRUE)
+write.xlsx(tabla_soloorden, "alzheimer/abundancias.xlsx", sheetName = "Order", row.names = FALSE, append = TRUE)
+muestras_8_HZ <- sample_metadata %>%
+  filter(age == "8", genotype == "HZ") %>%
+  pull("sample-id")
+
+tabla_8_HZ <- tabla_soloorden %>%
+  select(1, all_of(muestras_8_HZ))
+
+muestras_8_HTZ <- sample_metadata %>%
+  filter(age == "8", genotype == "HTZ") %>%
+  pull("sample-id")
+
+tabla_8_HTZ <- tabla_soloorden %>%
+  select(1, all_of(muestras_8_HTZ))
+
+
+muestras_8_WT <- sample_metadata %>%
+  filter(age == "8", genotype == "WT") %>%
+  pull("sample-id")
+
+tabla_8_WT <- tabla_soloorden %>%
+  select(1, all_of(muestras_8_WT))
+
+###################################################################
+
+muestras_12_HZ <- sample_metadata %>%
+  filter(age == "12", genotype == "HZ") %>%
+  pull("sample-id")
+
+tabla_12_HZ <- tabla_soloorden %>%
+  select(1, all_of(muestras_12_HZ))
+
+muestras_12_HTZ <- sample_metadata %>%
+  filter(age == "12", genotype == "HTZ") %>%
+  pull("sample-id")
+
+tabla_12_HTZ <- tabla_soloorden %>%
+  select(1, all_of(muestras_12_HTZ))
+
+
+muestras_12_WT <- sample_metadata %>%
+  filter(age == "12", genotype == "WT") %>%
+  pull("sample-id")
+
+tabla_12_WT <- tabla_soloorden %>%
+  select(1, all_of(muestras_12_WT))
+
+
+###################################################################3
+
+
+
+
+# Crear un vector para almacenar los valores de p
+p_age_genotipo <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12_WT)) {
+  concentracion_8_WT <- as.numeric(tabla_8_WT[n, -1])
+  concentracion_12_WT <- as.numeric(tabla_12_WT[n, -1])
+  resultado_age_genotipo<- wilcox.test(concentracion_12_WT, concentracion_8_WT, exact = FALSE)
+  p_age_genotipo <- c(p_age_genotipo, resultado_age_genotipo$p.value)
+}
+
+resultado_final_age_genotipo_WT <- data.frame(tabla_soloorden[, 1], p_value = p_age_genotipo)
+
+average_genotipos_8_WT <- data.frame(average_genotipo = numeric(nrow(tabla_8_WT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_8_WT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_8_WT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_8_WT
+  average_genotipos_8_WT[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_8_WT<-average_genotipos_8_WT
+average_genotipos_8_WT<-cbind(tabla_soloorden[,1],average_genotipos_porcentaje_8_WT)
+
+
+##############################################################################
+average_genotipos_12_WT <- data.frame(average_genotipo = numeric(nrow(tabla_12_WT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_12_WT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_12_WT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_12_WT
+  average_genotipos_12_WT[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_12_WT<-average_genotipos_12_WT
+average_genotipos_12_WT<-cbind(tabla_soloorden[,1],average_genotipos_porcentaje_12_WT)
+
+
+#######################################################################
+efecto_age_genotipo_WT<-cbind(average_genotipos_8_WT,average_genotipos_12_WT[,-1], resultado_final_age_genotipo_WT[,-1] )
+efecto_age_genotipo_WT <- data.frame(lapply(efecto_age_genotipo_WT, function(x) ifelse(is.nan(x), 1, x)))
+
+colnames(efecto_age_genotipo_WT) <- c("Order", "Average WT 8 months", "Average WT 12 months", "p-valor test")
+
+filas_significativas_age_genotipo_WT <- efecto_age_genotipo_WT[efecto_age_genotipo_WT$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_age_genotipo_WT) == 0) {
+  filas_significativas_age_genotipo_WT <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+write.xlsx(filas_significativas_age_genotipo_WT, "alzheimer/Significativo_genotipo_edad.xlsx", sheetName = "Order Wildtype", row.names = FALSE, append = TRUE)
+
+
+
+# Crear un vector para almacenar los valores de p
+p_age_genotipo <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12_HZ)) {
+  concentracion_8_HZ <- as.numeric(tabla_8_HZ[n, -1])
+  concentracion_12_HZ <- as.numeric(tabla_12_HZ[n, -1])
+  resultado_age_genotipo<- wilcox.test(concentracion_12_HZ, concentracion_8_HZ, exact = FALSE)
+  p_age_genotipo <- c(p_age_genotipo, resultado_age_genotipo$p.value)
+}
+
+resultado_final_age_genotipo_HZ <- data.frame(tabla_soloorden[, 1], p_value = p_age_genotipo)
+
+average_genotipos_8_HZ <- data.frame(average_genotipo = numeric(nrow(tabla_8_HZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_8_HZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_8_HZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_8_HZ
+  average_genotipos_8_HZ[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_8_HZ<-average_genotipos_8_HZ
+average_genotipos_8_HZ<-cbind(tabla_soloorden[,1],average_genotipos_porcentaje_8_HZ)
+
+
+##############################################################################
+average_genotipos_12_HZ <- data.frame(average_genotipo = numeric(nrow(tabla_12_HZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_12_HZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_12_HZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_12_HZ
+  average_genotipos_12_HZ[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_12_HZ<-average_genotipos_12_HZ
+average_genotipos_12_HZ<-cbind(tabla_soloorden[,1],average_genotipos_porcentaje_12_HZ)
+
+
+#######################################################################
+efecto_age_genotipo_HZ<-cbind(average_genotipos_8_HZ,average_genotipos_12_HZ[,-1], resultado_final_age_genotipo_HZ[,-1] )
+efecto_age_genotipo_HZ <- data.frame(lapply(efecto_age_genotipo_HZ, function(x) ifelse(is.nan(x), 1, x)))
+
+colnames(efecto_age_genotipo_HZ) <- c("Order", "Average HZ 8 months", "Average HZ 12 months", "p-valor test")
+
+filas_significativas_age_genotipo_HZ <- efecto_age_genotipo_HZ[efecto_age_genotipo_HZ$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_age_genotipo_HZ) == 0) {
+  filas_significativas_age_genotipo_HZ <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+write.xlsx(filas_significativas_age_genotipo_HZ, "alzheimer/Significativo_genotipo_edad.xlsx", sheetName = "Order Homozygous", row.names = FALSE, append = TRUE)
+
+
+
+# Crear un vector para almacenar los valores de p
+p_age_genotipo <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12_HTZ)) {
+  concentracion_8_HTZ <- as.numeric(tabla_8_HTZ[n, -1])
+  concentracion_12_HTZ <- as.numeric(tabla_12_HTZ[n, -1])
+  resultado_age_genotipo<- wilcox.test(concentracion_12_HTZ, concentracion_8_HTZ, exact = FALSE)
+  p_age_genotipo <- c(p_age_genotipo, resultado_age_genotipo$p.value)
+}
+
+resultado_final_age_genotipo_HTZ <- data.frame(tabla_soloorden[, 1], p_value = p_age_genotipo)
+
+average_genotipos_8_HTZ <- data.frame(average_genotipo = numeric(nrow(tabla_8_HTZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_8_HTZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_8_HTZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_8_HTZ
+  average_genotipos_8_HTZ[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_8_HTZ<-average_genotipos_8_HTZ
+average_genotipos_8_HTZ<-cbind(tabla_soloorden[,1],average_genotipos_porcentaje_8_HTZ)
+
+
+##############################################################################
+average_genotipos_12_HTZ <- data.frame(average_genotipo = numeric(nrow(tabla_12_HTZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_12_HTZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_12_HTZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_12_HTZ
+  average_genotipos_12_HTZ[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_12_HTZ<-average_genotipos_12_HTZ
+average_genotipos_12_HTZ<-cbind(tabla_soloorden[,1],average_genotipos_porcentaje_12_HTZ)
+
+
+#######################################################################
+efecto_age_genotipo_HTZ<-cbind(average_genotipos_8_HTZ,average_genotipos_12_HTZ[,-1], resultado_final_age_genotipo_HTZ[,-1] )
+efecto_age_genotipo_HTZ <- data.frame(lapply(efecto_age_genotipo_HTZ, function(x) ifelse(is.nan(x), 1, x)))
+colnames(efecto_age_genotipo_HTZ) <- c("Order", "Average HTZ 8 months", "Average HTZ 12 months", "p-valor test")
+
+
+
+filas_significativas_age_genotipo_HTZ <- efecto_age_genotipo_HTZ[efecto_age_genotipo_HTZ$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_age_genotipo_HTZ) == 0) {
+  filas_significativas_age_genotipo_HTZ <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+
+write.xlsx(filas_significativas_age_genotipo_HTZ, "alzheimer/Significativo_genotipo_edad.xlsx", sheetName = "Order Heterozygous", row.names = FALSE, append = TRUE)
+
+
+
+
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+#library(tidyverse)
+library(data.table)
+#library(ggpubr)
+library(readr)
+library(stats)
+library(formattable)
+library(dplyr)
+library(car)
+library(xlsx)
+options(scipen = 999)
+
+
+
+familia_tabla_silva<-read_delim("alzheimer/exported/familia-tabla-silva.tsv", 
+                                delim = "\t", escape_double = FALSE, 
+                                trim_ws = TRUE, skip = 1)
+sample_metadata <- read_table("alzheimer/sample-metadata.tsv")
+
+#cambiar los nombres para la familia y eliminar lo que no sea una familia
+
+familia_tabla_silva$`#OTU ID` <- sub("^.*f__", "", familia_tabla_silva$`#OTU ID`)
+
+
+# Obtener las filas a eliminar basadas en el criterio
+filas_a_eliminar <- grepl("^d__|^uncultured|^Unassigned;__;__", familia_tabla_silva$`#OTU ID`)
+
+
+# Eliminar las filas que cumplen con el criterio
+tabla_solofamilia <- familia_tabla_silva[!filas_a_eliminar, ]
+tabla_solofamilianumeros<-tabla_solofamilia[,-1]
+write.xlsx(tabla_solofamilia, "alzheimer/lecturas_familia.xlsx", sheetName = "Family", row.names = TRUE, append = TRUE)
+
+# Crear un vector para almacenar las sumas
+num_columnas <- ncol(tabla_solofamilianumeros)
+suma_columnas <- colSums(tabla_solofamilianumeros)
+
+# Dividir cada valor en el dataframe tabla_solofamilianumeros por la columna suma_columnas
+tabla_abundancias <- sweep(tabla_solofamilianumeros, 2, suma_columnas, `/`) * 100
+
+tabla_solofamilia <- cbind(tabla_solofamilia[, 1], tabla_abundancias)
+
+p_sd <- data.frame()  # Crear un dataframe vacío para almacenar los resultados
+
+for (n in 1:nrow(tabla_abundancias)) {
+  sd_fila <- sd(as.numeric(tabla_abundancias[n, ]))  # Calcular la desviación estándar de la fila actual
+  p_sd <- rbind(p_sd, data.frame(Fila = tabla_solofamilia[n, 1], Desviacion_Estandar = sd_fila))  # Agregar el resultado al dataframe p_sd
+}
+
+
+#########################################################################
+#########################Genero########################################
+#########################################################################
+
+
+#gender
+muestras_Male <- sample_metadata %>%
+  filter(gender == "Male") %>%
+  pull("sample-id")
+
+tabla_Male <- tabla_solofamilia %>%
+  select(1, all_of(muestras_Male))
+
+#Female
+
+muestras_Female <- sample_metadata %>%
+  filter(gender == "Female") %>%
+  pull("sample-id")
+
+tabla_Female <- tabla_solofamilia %>%
+  select(1, all_of(muestras_Female))
+
+numeros_Male<-(tabla_Male[, -1])
+numeros_Male <- unlist(numeros_Male)
+numeros_Male<-as.numeric(numeros_Male)
+shapiro.test(numeros_Male)
+
+numeros_Female<-(tabla_Female[, -1])
+numeros_Female <- unlist(numeros_Female)
+numeros_Female<-as.numeric(numeros_Female)
+shapiro.test(numeros_Female)
+
+
+
+# Crear un vector para almacenar los valores de p
+p_gender <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_Male)) {
+  concentracion_Female <- as.numeric(tabla_Female[n, -1])
+  concentracion_Male <- as.numeric(tabla_Male[n, -1])
+  resultado_gender<- wilcox.test(concentracion_Male, concentracion_Female, exact = FALSE)
+  p_gender <- c(p_gender, resultado_gender$p.value)
+}
+
+resultado_final_gender <- data.frame(tabla_solofamilia[, 1], p_value = p_gender)
+
+averages_Female <- data.frame(average = numeric(nrow(tabla_Female)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_Female)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_Female[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_Female
+  averages_Female[i, "average"] <- average_fila
+}
+averages_porcentaje_Female<-averages_Female
+averages_Female<-cbind(tabla_solofamilia[,1],averages_porcentaje_Female)
+
+
+##############################################################################
+averages_Male <- data.frame(average = numeric(nrow(tabla_Male)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_Male)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_Male[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_Male
+  averages_Male[i, "average"] <- average_fila
+}
+averages_porcentaje_Male<-averages_Male
+averages_Male<-cbind(tabla_solofamilia[,1],averages_porcentaje_Male)
+
+
+#######################################################################
+efecto_gender<-cbind(averages_Female,averages_Male[,-1], resultado_final_gender[,-1] )
+colnames(efecto_gender) <- c("Family", "Average female", "Average male", "p-valor test")
+
+filas_significativas_gender <- efecto_gender[efecto_gender$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_gender) == 0) {
+  filas_significativas_gender <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+
+
+##############################################################################
+##############################################################################
+
+########################################################################
+#########################Edad########################################
+#########################################################################
+
+
+#age
+muestras_12 <- sample_metadata %>%
+  filter(age == "12") %>%
+  pull("sample-id")
+
+tabla_12 <- tabla_solofamilia %>%
+  select(1, all_of(muestras_12))
+
+#8
+
+muestras_8 <- sample_metadata %>%
+  filter(age == "8") %>%
+  pull("sample-id")
+
+tabla_8 <- tabla_solofamilia %>%
+  select(1, all_of(muestras_8))
+
+numeros_12<-(tabla_12[, -1])
+numeros_12 <- unlist(numeros_12)
+numeros_12<-as.numeric(numeros_12)
+
+numeros_8<-(tabla_8[, -1])
+numeros_8 <- unlist(numeros_8)
+numeros_8<-as.numeric(numeros_8)
+
+
+
+# Crear un vector para almacenar los valores de p
+p_age <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12)) {
+  concentracion_8 <- as.numeric(tabla_8[n, -1])
+  concentracion_12 <- as.numeric(tabla_12[n, -1])
+  resultado_age<- wilcox.test(concentracion_12, concentracion_8, exact = FALSE)
+  p_age <- c(p_age, resultado_age$p.value)
+}
+
+resultado_final_age <- data.frame(tabla_solofamilia[, 1], p_value = p_age)
+
+averages_8 <- data.frame(average = numeric(nrow(tabla_8)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_8)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_8[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_8
+  averages_8[i, "average"] <- average_fila
+}
+averages_porcentaje_8<-averages_8
+averages_8<-cbind(tabla_solofamilia[,1],averages_porcentaje_8)
+
+
+##############################################################################
+averages_12 <- data.frame(average = numeric(nrow(tabla_12)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_12)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_12[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_12
+  averages_12[i, "average"] <- average_fila
+}
+averages_porcentaje_12<-averages_12
+averages_12<-cbind(tabla_solofamilia[,1],averages_porcentaje_12)
+
+
+#######################################################################
+efecto_age<-cbind(averages_8,averages_12[,-1], resultado_final_age[,-1] )
+colnames(efecto_age) <- c("Family", "average 8 months", "average 12 months", "p-valor test")
+
+filas_significativas_age <- efecto_age[efecto_age$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_age) == 0) {
+  filas_significativas_age <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+
+###################################################################
+#########################GENOTIPO##################################
+#GENOTIPO
+muestras_WT <- sample_metadata %>%
+  filter(genotype == "WT") %>%
+  pull("sample-id")
+
+tabla_WT <- tabla_solofamilia %>%
+  select(1, all_of(muestras_WT))
+
+#HTZ
+
+muestras_HTZ <- sample_metadata %>%
+  filter(genotype == "HTZ") %>%
+  pull("sample-id")
+
+tabla_HTZ <- tabla_solofamilia %>%
+  select(1, all_of(muestras_HTZ))
+
+
+muestras_HZ <- sample_metadata %>%
+  filter(genotype == "HZ") %>%
+  pull("sample-id")
+
+tabla_HZ <- tabla_solofamilia %>%
+  select(1, all_of(muestras_HZ))
+
+
+
+#test estadístico krustall wallis para el GENOTIPO
+
+
+# Identificar filas completas con NA en el dataframe tabla_WT
+filas_completas_na <- complete.cases(tabla_WT)
+
+# Filtrar el dataframe tabla_WT excluyendo las filas con NA
+tabla_WT_filtrado <- tabla_WT[filas_completas_na, ]
+
+# Hacer lo mismo para el dataframe hzt
+tabla_HTZ_filtrado <- tabla_HTZ[filas_completas_na, ]
+
+# Hacer lo mismo para el dataframe hzt
+tabla_HZ_filtrado <- tabla_HZ[filas_completas_na, ]
+
+
+
+p_genotype <- c()  # Vector para almacenar los p-valores
+
+for (n in 1:nrow(tabla_WT_filtrado)) {
+  concentracion_WT <- as.numeric(tabla_WT_filtrado[n, -1])
+  concentracion_HTZ <- as.numeric(tabla_HTZ_filtrado[n, -1])
+  concentracion_HZ <- as.numeric(tabla_HZ_filtrado[n, -1])
+  
+  x <- c(concentracion_HZ, concentracion_HTZ, concentracion_WT)
+  g <- factor(rep(1:3, c(20, 22, 35)),
+              labels = c("concentracion_HZ",
+                         "concentracion_HTZ",
+                         "concentracion_WT"))
+  
+  resultado_genotype <- kruskal.test(x,g)
+  
+  p_genotype <- c(p_genotype, resultado_genotype$p.value)
+}
+
+averages_HTZ <- data.frame(average = numeric(nrow(tabla_HTZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_HTZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_HTZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_HTZ
+  averages_HTZ[i, "average"] <- average_fila
+}
+averages_porcentaje_HTZ<-averages_HTZ
+averages_HTZ<-cbind(tabla_solofamilia[,1],averages_porcentaje_HTZ)
+
+
+##############################################################################
+averages_WT <- data.frame(average = numeric(nrow(tabla_WT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_WT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_WT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_WT
+  averages_WT[i, "average"] <- average_fila
+}
+averages_porcentaje_WT<-averages_WT
+averages_WT<-cbind(tabla_solofamilia[,1],averages_porcentaje_WT)
+
+##############################################################################
+averages_HZ <- data.frame(average = numeric(nrow(tabla_HZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_HZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_HZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_HZ
+  averages_HZ[i, "average"] <- average_fila
+}
+averages_porcentaje_HZ<-averages_HZ
+averages_HZ<-cbind(tabla_solofamilia[,1],averages_porcentaje_HZ)
+
+resultado_final_genotype <- data.frame(tabla_solofamilia[, 1], p_value = p_genotype)
+
+
+efecto_genotype<-cbind(averages_HZ,averages_WT[,-1], averages_HTZ[,-1], resultado_final_genotype[,-1])
+colnames(efecto_genotype) <- c("Family", "average genotype HZ", "average genotype WT", "average genotype HTZ","p-valor test")
+
+filas_significativas_genotype <- efecto_genotype[efecto_genotype$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_genotype) == 0) {
+  filas_significativas_genotype <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+
+
+
+
+write.xlsx(filas_significativas_gender, "alzheimer/Significativo_gender.xlsx", sheetName = "Family", row.names = FALSE, append = TRUE)
+write.xlsx(filas_significativas_genotype, "alzheimer/Significativo_genotype.xlsx", sheetName = "Family", row.names = FALSE, append = TRUE)
+write.xlsx(filas_significativas_age, "alzheimer/Significativo_age.xlsx", sheetName = "Family", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_age, "alzheimer/efecto_age.xlsx", sheetName = "Family", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_genotype, "alzheimer/efecto_genotype.xlsx", sheetName = "Family", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_gender, "alzheimer/efecto_gender.xlsx", sheetName = "Family", row.names = FALSE, append = TRUE)
+write.xlsx(tabla_solofamilia, "alzheimer/abundancias.xlsx", sheetName = "Family", row.names = FALSE, append = TRUE)
+
+
+muestras_8_HZ <- sample_metadata %>%
+  filter(age == "8", genotype == "HZ") %>%
+  pull("sample-id")
+
+tabla_8_HZ <- tabla_solofamilia %>%
+  select(1, all_of(muestras_8_HZ))
+
+muestras_8_HTZ <- sample_metadata %>%
+  filter(age == "8", genotype == "HTZ") %>%
+  pull("sample-id")
+
+tabla_8_HTZ <- tabla_solofamilia %>%
+  select(1, all_of(muestras_8_HTZ))
+
+
+muestras_8_WT <- sample_metadata %>%
+  filter(age == "8", genotype == "WT") %>%
+  pull("sample-id")
+
+tabla_8_WT <- tabla_solofamilia %>%
+  select(1, all_of(muestras_8_WT))
+
+###################################################################
+
+muestras_12_HZ <- sample_metadata %>%
+  filter(age == "12", genotype == "HZ") %>%
+  pull("sample-id")
+
+tabla_12_HZ <- tabla_solofamilia %>%
+  select(1, all_of(muestras_12_HZ))
+
+muestras_12_HTZ <- sample_metadata %>%
+  filter(age == "12", genotype == "HTZ") %>%
+  pull("sample-id")
+
+tabla_12_HTZ <- tabla_solofamilia %>%
+  select(1, all_of(muestras_12_HTZ))
+
+
+muestras_12_WT <- sample_metadata %>%
+  filter(age == "12", genotype == "WT") %>%
+  pull("sample-id")
+
+tabla_12_WT <- tabla_solofamilia %>%
+  select(1, all_of(muestras_12_WT))
+
+
+###################################################################3
+
+
+# Crear un vector para almacenar los valores de p
+p_age_genotipo <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12_WT)) {
+  concentracion_8_WT <- as.numeric(tabla_8_WT[n, -1])
+  concentracion_12_WT <- as.numeric(tabla_12_WT[n, -1])
+  resultado_age_genotipo<- wilcox.test(concentracion_12_WT, concentracion_8_WT, exact = FALSE)
+  p_age_genotipo <- c(p_age_genotipo, resultado_age_genotipo$p.value)
+}
+
+resultado_final_age_genotipo_WT <- data.frame(tabla_solofamilia[, 1], p_value = p_age_genotipo)
+
+average_genotipos_8_WT <- data.frame(average_genotipo = numeric(nrow(tabla_8_WT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_8_WT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_8_WT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_8_WT
+  average_genotipos_8_WT[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_8_WT<-average_genotipos_8_WT
+average_genotipos_8_WT<-cbind(tabla_solofamilia[,1],average_genotipos_porcentaje_8_WT)
+p_sd_8_WT <- data.frame()  # Crear un dataframe vacío para almacenar los resultados
+
+for (n in 1:nrow(tabla_8_WT[,-1])) {
+  sd_fila_8_WT <- sd(as.numeric(tabla_8_WT[n, -1]))  # Calcular la desviación estándar de la fila actual
+  p_sd_8_WT <- rbind(p_sd_8_WT, data.frame(Fila = tabla_solofamilia[n, 1], Desviacion_Estandar = sd_fila_8_WT))  # Agregar el resultado al dataframe p_sd
+}
+average_genotipos_8_WT<-cbind(tabla_solofamilia[,1],average_genotipos_porcentaje_8_WT, p_sd_8_WT[,-1])
+
+##############################################################################
+average_genotipos_12_WT <- data.frame(average_genotipo = numeric(nrow(tabla_12_WT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_12_WT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_12_WT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_12_WT
+  average_genotipos_12_WT[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_12_WT<-average_genotipos_12_WT
+average_genotipos_12_WT<-cbind(tabla_solofamilia[,1],average_genotipos_porcentaje_12_WT)
+
+p_sd_12_WT <- data.frame()  # Crear un dataframe vacío para almacenar los resultados
+
+for (n in 1:nrow(tabla_12_WT[,-1])) {
+  sd_fila_12_WT <- sd(as.numeric(tabla_12_WT[n, -1]))  # Calcular la desviación estándar de la fila actual
+  p_sd_12_WT <- rbind(p_sd_12_WT, data.frame(Fila = tabla_solofamilia[n, 1], Desviacion_Estandar = sd_fila_12_WT))  # Agregar el resultado al dataframe p_sd
+}
+average_genotipos_12_WT<-cbind(tabla_solofamilia[,1],average_genotipos_porcentaje_12_WT, p_sd_12_WT[,-1])
+#######################################################################
+efecto_age_genotipo_WT<-cbind(average_genotipos_8_WT,average_genotipos_12_WT[,-1], resultado_final_age_genotipo_WT[,-1] )
+efecto_age_genotipo_WT <- data.frame(lapply(efecto_age_genotipo_WT, function(x) ifelse(is.nan(x), 1, x)))
+
+colnames(efecto_age_genotipo_WT) <- c("Family", "Average WT 8 months", "SD WT 8 months", "Average WT 12 months", "SD WT 12 months", "p-valor test")
+
+filas_significativas_age_genotipo_WT <- efecto_age_genotipo_WT[efecto_age_genotipo_WT$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_age_genotipo_WT) == 0) {
+  filas_significativas_age_genotipo_WT <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+write.xlsx(filas_significativas_age_genotipo_WT, "alzheimer/Significativo_genotipo_edad.xlsx", sheetName = "Family WIldtype", row.names = FALSE, append = TRUE)
+
+# Crear un vector para almacenar los valores de p
+p_age_genotipo <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12_HZ)) {
+  concentracion_8_HZ <- as.numeric(tabla_8_HZ[n, -1])
+  concentracion_12_HZ <- as.numeric(tabla_12_HZ[n, -1])
+  resultado_age_genotipo<- wilcox.test(concentracion_12_HZ, concentracion_8_HZ, exact = FALSE)
+  p_age_genotipo <- c(p_age_genotipo, resultado_age_genotipo$p.value)
+}
+
+resultado_final_age_genotipo_HZ <- data.frame(tabla_solofamilia[, 1], p_value = p_age_genotipo)
+
+average_genotipos_8_HZ <- data.frame(average_genotipo = numeric(nrow(tabla_8_HZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_8_HZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_8_HZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_8_HZ
+  average_genotipos_8_HZ[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_8_HZ<-average_genotipos_8_HZ
+average_genotipos_8_HZ<-cbind(tabla_solofamilia[,1],average_genotipos_porcentaje_8_HZ)
+p_sd_8_HZ <- data.frame()  # Crear un dataframe vacío para almacenar los resultados
+
+for (n in 1:nrow(tabla_8_HZ[,-1])) {
+  sd_fila_8_HZ <- sd(as.numeric(tabla_8_HZ[n, -1]))  # Calcular la desviación estándar de la fila actual
+  p_sd_8_HZ <- rbind(p_sd_8_HZ, data.frame(Fila = tabla_solofamilia[n, 1], Desviacion_Estandar = sd_fila_8_HZ))  # Agregar el resultado al dataframe p_sd
+}
+average_genotipos_8_HZ<-cbind(tabla_solofamilia[,1],average_genotipos_porcentaje_8_HZ, p_sd_8_HZ[,-1])
+
+##############################################################################
+average_genotipos_12_HZ <- data.frame(average_genotipo = numeric(nrow(tabla_12_HZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_12_HZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_12_HZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_12_HZ
+  average_genotipos_12_HZ[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_12_HZ<-average_genotipos_12_HZ
+average_genotipos_12_HZ<-cbind(tabla_solofamilia[,1],average_genotipos_porcentaje_12_HZ)
+
+p_sd_12_HZ <- data.frame()  # Crear un dataframe vacío para almacenar los resultados
+
+for (n in 1:nrow(tabla_12_HZ[,-1])) {
+  sd_fila_12_HZ <- sd(as.numeric(tabla_12_HZ[n, -1]))  # Calcular la desviación estándar de la fila actual
+  p_sd_12_HZ <- rbind(p_sd_12_HZ, data.frame(Fila = tabla_solofamilia[n, 1], Desviacion_Estandar = sd_fila_12_HZ))  # Agregar el resultado al dataframe p_sd
+}
+average_genotipos_12_HZ<-cbind(tabla_solofamilia[,1],average_genotipos_porcentaje_12_HZ, p_sd_12_HZ[,-1])
+#######################################################################
+efecto_age_genotipo_HZ<-cbind(average_genotipos_8_HZ,average_genotipos_12_HZ[,-1], resultado_final_age_genotipo_HZ[,-1] )
+efecto_age_genotipo_HZ <- data.frame(lapply(efecto_age_genotipo_HZ, function(x) ifelse(is.nan(x), 1, x)))
+
+colnames(efecto_age_genotipo_HZ) <- c("Family", "Average HZ 8 months", "SD HZ 8 months", "Average HZ 12 months", "SD HZ 12 months", "p-valor test")
+
+filas_significativas_age_genotipo_HZ <- efecto_age_genotipo_HZ[efecto_age_genotipo_HZ$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_age_genotipo_HZ) == 0) {
+  filas_significativas_age_genotipo_HZ <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+write.xlsx(filas_significativas_age_genotipo_HZ, "alzheimer/Significativo_genotipo_edad.xlsx", sheetName = "Family Homozygous", row.names = FALSE, append = TRUE)
+
+
+
+# Crear un vector para almacenar los valores de p
+p_age_genotipo <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12_HTZ)) {
+  concentracion_8_HTZ <- as.numeric(tabla_8_HTZ[n, -1])
+  concentracion_12_HTZ <- as.numeric(tabla_12_HTZ[n, -1])
+  resultado_age_genotipo<- wilcox.test(concentracion_12_HTZ, concentracion_8_HTZ, exact = FALSE)
+  p_age_genotipo <- c(p_age_genotipo, resultado_age_genotipo$p.value)
+}
+
+resultado_final_age_genotipo_HTZ <- data.frame(tabla_solofamilia[, 1], p_value = p_age_genotipo)
+
+average_genotipos_8_HTZ <- data.frame(average_genotipo = numeric(nrow(tabla_8_HTZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_8_HTZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_8_HTZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_8_HTZ
+  average_genotipos_8_HTZ[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_8_HTZ<-average_genotipos_8_HTZ
+average_genotipos_8_HTZ<-cbind(tabla_solofamilia[,1],average_genotipos_porcentaje_8_HTZ)
+
+p_sd_8_HTZ <- data.frame()  # Crear un dataframe vacío para almacenar los resultados
+
+for (n in 1:nrow(tabla_8_HTZ[,-1])) {
+  sd_fila_8_HTZ <- sd(as.numeric(tabla_8_HTZ[n, -1]))  # Calcular la desviación estándar de la fila actual
+  p_sd_8_HTZ <- rbind(p_sd_8_HTZ, data.frame(Fila = tabla_solofamilia[n, 1], Desviacion_Estandar = sd_fila_8_HTZ))  # Agregar el resultado al dataframe p_sd
+}
+average_genotipos_8_HTZ<-cbind(tabla_solofamilia[,1],average_genotipos_porcentaje_8_HTZ, p_sd_8_HTZ[,-1])
+##############################################################################
+average_genotipos_12_HTZ <- data.frame(average_genotipo = numeric(nrow(tabla_12_HTZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_12_HTZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_12_HTZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_12_HTZ
+  average_genotipos_12_HTZ[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_12_HTZ<-average_genotipos_12_HTZ
+average_genotipos_12_HTZ<-cbind(tabla_solofamilia[,1],average_genotipos_porcentaje_12_HTZ)
+p_sd_12_HTZ <- data.frame()  # Crear un dataframe vacío para almacenar los resultados
+
+for (n in 1:nrow(tabla_12_HTZ[,-1])) {
+  sd_fila_12_HTZ <- sd(as.numeric(tabla_12_HTZ[n, -1]))  # Calcular la desviación estándar de la fila actual
+  p_sd_12_HTZ <- rbind(p_sd_12_HTZ, data.frame(Fila = tabla_solofamilia[n, 1], Desviacion_Estandar = sd_fila_12_HTZ))  # Agregar el resultado al dataframe p_sd
+}
+average_genotipos_12_HTZ<-cbind(tabla_solofamilia[,1],average_genotipos_porcentaje_12_HTZ, p_sd_12_HTZ[,-1])
+
+#######################################################################
+efecto_age_genotipo_HTZ<-cbind(average_genotipos_8_HTZ,average_genotipos_12_HTZ[,-1], resultado_final_age_genotipo_HTZ[,-1] )
+efecto_age_genotipo_HTZ <- data.frame(lapply(efecto_age_genotipo_HTZ, function(x) ifelse(is.nan(x), 1, x)))
+colnames(efecto_age_genotipo_HTZ) <- c("Family", "Average HTZ 8 months", "SD HTZ 8 months", "Average HTZ 12 months", "SD HTZ 12 months", "p-valor test")
+
+
+
+filas_significativas_age_genotipo_HTZ <- efecto_age_genotipo_HTZ[efecto_age_genotipo_HTZ$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_age_genotipo_HTZ) == 0) {
+  filas_significativas_age_genotipo_HTZ <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+
+write.xlsx(filas_significativas_age_genotipo_HTZ, "alzheimer/Significativo_genotipo_edad.xlsx", sheetName = "Family Heterozygous", row.names = FALSE, append = TRUE)
+
+write.xlsx(efecto_age_genotipo_HTZ, "alzheimer/efecto_genotipo_edad.xlsx", sheetName = "Family Heterozygous", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_age_genotipo_WT, "alzheimer/efecto_genotipo_edad.xlsx", sheetName = "Family Wildtype", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_age_genotipo_HZ, "alzheimer/efecto_genotipo_edad.xlsx", sheetName = "Family Homozygous", row.names = FALSE, append = TRUE)
+
+
+
+# Identificar filas completas con NA en el dataframe tabla_8_WT
+filas_completas_na <- complete.cases(tabla_8_WT)
+
+# Filtrar el dataframe tabla_8_WT excluyendo las filas con NA
+tabla_8_WT_filtrado <- tabla_8_WT[filas_completas_na, ]
+
+# Hacer lo mismo para el dataframe hzt
+tabla_8_HTZ_filtrado <- tabla_8_HTZ[filas_completas_na, ]
+
+# Hacer lo mismo para el dataframe hzt
+tabla_8_HZ_filtrado <- tabla_8_HZ[filas_completas_na, ]
+
+
+
+p_genotipo_jovenes <- c()  # Vector para almacenar los p-valores
+
+for (n in 1:nrow(tabla_8_WT_filtrado)) {
+  concentracion_8_WT <- as.numeric(tabla_8_WT_filtrado[n, -1])
+  concentracion_8_HTZ <- as.numeric(tabla_8_HTZ_filtrado[n, -1])
+  concentracion_8_HZ <- as.numeric(tabla_8_HZ_filtrado[n, -1])
+  
+  x <- c(concentracion_8_HZ, concentracion_8_HTZ, concentracion_8_WT)
+  g <- factor(rep(1:3, c(12, 9, 16)),
+              labels = c("concentracion_8_HZ",
+                         "concentracion_8_HTZ",
+                         "concentracion_8_WT"))
+  
+  resultado_genotipo_jovenes <- kruskal.test(x,g)
+  
+  p_genotipo_jovenes <- c(p_genotipo_jovenes, resultado_genotipo_jovenes$p.value)
+}
+
+##############################################################################
+
+averages_8_HTZ <- data.frame(average = numeric(nrow(tabla_8_HTZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_8_HTZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_8_HTZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_8_HTZ
+  averages_8_HTZ[i, "average"] <- average_fila
+}
+averages_porcentaje_8_HTZ<-averages_8_HTZ
+averages_8_HTZ<-cbind(tabla_solofamilia[,1],averages_porcentaje_8_HTZ)
+
+
+##############################################################################
+averages_8_WT <- data.frame(average = numeric(nrow(tabla_8_WT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_8_WT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_8_WT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_8_WT
+  averages_8_WT[i, "average"] <- average_fila
+}
+averages_porcentaje_8_WT<-averages_8_WT
+averages_8_WT<-cbind(tabla_solofamilia[,1],averages_porcentaje_8_WT)
+
+##############################################################################
+averages_8_HZ <- data.frame(average = numeric(nrow(tabla_8_HZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_8_HZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_8_HZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_8_HZ
+  averages_8_HZ[i, "average"] <- average_fila
+}
+averages_porcentaje_8_HZ<-averages_8_HZ
+averages_8_HZ<-cbind(tabla_solofamilia[,1],averages_porcentaje_8_HZ)
+
+resultado_final_genotipo_jovenes <- data.frame(tabla_solofamilia[, 1], p_value = p_genotipo_jovenes)
+resultado_final_genotipo_jovenes$p_value <- ifelse(is.na(resultado_final_genotipo_jovenes$p_value), 1, resultado_final_genotipo_jovenes$p_value)
+
+efecto_genotipo_jovenes<-cbind(averages_8_WT, averages_8_HTZ[,-1], averages_8_HZ[,-1], resultado_final_genotipo_jovenes[,-1])
+colnames(efecto_genotipo_jovenes) <- c("Family", "average WT", "average HTZ","average HZ", "p-valor")
+
+filas_significativas_genotipo_jovenes <- efecto_genotipo_jovenes[efecto_genotipo_jovenes$`p-valor` < 0.05, ]
+if (nrow(filas_significativas_genotipo_jovenes) == 0) {
+  filas_significativas_genotipo_jovenes <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+
+write.xlsx(filas_significativas_genotipo_jovenes, "alzheimer/Significativo_genotipo_entre_edades.xlsx", sheetName = "Jóvenes", row.names = FALSE, append = TRUE)
+
+
+
+# Identificar filas completas con NA en el dataframe tabla_12_WT
+filas_completas_na <- complete.cases(tabla_12_WT)
+
+# Filtrar el dataframe tabla_12_WT excluyendo las filas con NA
+tabla_12_WT_filtrado <- tabla_12_WT[filas_completas_na, ]
+
+# Hacer lo mismo para el dataframe hzt
+tabla_12_HTZ_filtrado <- tabla_12_HTZ[filas_completas_na, ]
+
+# Hacer lo mismo para el dataframe hzt
+tabla_12_HZ_filtrado <- tabla_12_HZ[filas_completas_na, ]
+
+
+
+p_genotipo_viejos <- c()  # Vector para almacenar los p-valores
+
+for (n in 1:nrow(tabla_12_WT_filtrado)) {
+  concentracion_12_WT <- as.numeric(tabla_12_WT_filtrado[n, -1])
+  concentracion_12_HTZ <- as.numeric(tabla_12_HTZ_filtrado[n, -1])
+  concentracion_12_HZ <- as.numeric(tabla_12_HZ_filtrado[n, -1])
+  
+  x <- c(concentracion_12_HZ, concentracion_12_HTZ, concentracion_12_WT)
+  g <- factor(rep(1:3, c(8, 13, 19)),
+              labels = c("concentracion_12_HZ",
+                         "concentracion_12_HTZ",
+                         "concentracion_12_WT"))
+  
+  resultado_genotipo_viejos <- kruskal.test(x,g)
+  
+  p_genotipo_viejos <- c(p_genotipo_viejos, resultado_genotipo_viejos$p.value)
+}
+
+
+averages_12_HTZ <- data.frame(average = numeric(nrow(tabla_12_HTZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_12_HTZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_12_HTZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_12_HTZ
+  averages_12_HTZ[i, "average"] <- average_fila
+}
+averages_porcentaje_12_HTZ<-averages_12_HTZ
+averages_12_HTZ<-cbind(tabla_solofamilia[,1],averages_porcentaje_12_HTZ)
+
+
+##############################################################################
+averages_12_WT <- data.frame(average = numeric(nrow(tabla_12_WT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_12_WT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_12_WT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_12_WT
+  averages_12_WT[i, "average"] <- average_fila
+}
+averages_porcentaje_12_WT<-averages_12_WT
+averages_12_WT<-cbind(tabla_solofamilia[,1],averages_porcentaje_12_WT)
+
+##############################################################################
+averages_12_HZ <- data.frame(average = numeric(nrow(tabla_12_HZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_12_HZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_12_HZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_12_HZ
+  averages_12_HZ[i, "average"] <- average_fila
+}
+averages_porcentaje_12_HZ<-averages_12_HZ
+averages_12_HZ<-cbind(tabla_solofamilia[,1],averages_porcentaje_12_HZ)
+
+resultado_final_genotipo_viejos <- data.frame(tabla_solofamilia[, 1], p_value = p_genotipo_viejos)
+resultado_final_genotipo_viejos$p_value <- ifelse(is.na(resultado_final_genotipo_viejos$p_value), 1, resultado_final_genotipo_viejos$p_value)
+
+efecto_genotipo_viejos<-cbind(averages_12_WT, averages_12_HTZ[,-1], averages_12_HZ[,-1], resultado_final_genotipo_viejos[,-1])
+colnames(efecto_genotipo_viejos) <- c("Family", "average WT", "average HTZ","average HZ", "p-valor")
+
+
+filas_significativas_genotipo_viejos <- efecto_genotipo_viejos[efecto_genotipo_viejos$`p-valor` < 0.05, ]
+if (nrow(filas_significativas_genotipo_viejos) == 0) {
+  filas_significativas_genotipo_viejos <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+
+
+
+write.xlsx(filas_significativas_genotipo_viejos, "alzheimer/Significativo_genotipo_entre_edades.xlsx", sheetName = "Viejos", row.names = FALSE, append = TRUE)
+
+
+
+write.xlsx(efecto_genotipo_jovenes, "alzheimer/efecto_genotipo_entre_edades.xlsx", sheetName = "jovenes", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_genotipo_viejos, "alzheimer/efecto_genotipo_entre_edades.xlsx", sheetName = "viejos", row.names = FALSE, append = TRUE)
+
+
+
+
+
+
+
+
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
+genero_tabla_silva<-read_delim("alzheimer/exported/genero-tabla-silva.tsv", 
+                               delim = "\t", escape_double = FALSE, 
+                               trim_ws = TRUE, skip = 1)
+sample_metadata <- read_table("alzheimer/sample-metadata.tsv")
+
+#cambiar los nombres para la genero y eliminar lo que no sea una genero
+
+genero_tabla_silva$`#OTU ID` <- sub("^.*g__", "", genero_tabla_silva$`#OTU ID`)
+
+
+# Obtener las filas a eliminar basadas en el criterio
+filas_a_eliminar <- grepl("^d__|^uncultured|^Unassigned;__;__", genero_tabla_silva$`#OTU ID`)
+
+
+# Eliminar las filas que cumplen con el criterio
+tabla_sologenero <- genero_tabla_silva[!filas_a_eliminar, ]
+tabla_sologeneronumeros<-tabla_sologenero[,-1]
+
+write.xlsx(tabla_sologenero, "alzheimer/lecturas_genero.xlsx", sheetName = "Genus", row.names = TRUE, append = TRUE)
+
+# Crear un vector para almacenar las sumas
+num_columnas <- ncol(tabla_sologeneronumeros)
+suma_columnas <- colSums(tabla_sologeneronumeros)
+
+# Dividir cada valor en el dataframe tabla_sologeneronumeros por la columna suma_columnas
+tabla_abundancias <- sweep(tabla_sologeneronumeros, 2, suma_columnas, `/`) * 100
+
+tabla_sologenero <- cbind(tabla_sologenero[, 1], tabla_abundancias)
+
+
+#########################################################################
+#########################Genero########################################
+#########################################################################
+
+
+#gender
+muestras_Male <- sample_metadata %>%
+  filter(gender == "Male") %>%
+  pull("sample-id")
+
+tabla_Male <- tabla_sologenero %>%
+  select(1, all_of(muestras_Male))
+
+#Female
+
+muestras_Female <- sample_metadata %>%
+  filter(gender == "Female") %>%
+  pull("sample-id")
+
+tabla_Female <- tabla_sologenero %>%
+  select(1, all_of(muestras_Female))
+
+numeros_Male<-(tabla_Male[, -1])
+numeros_Male <- unlist(numeros_Male)
+numeros_Male<-as.numeric(numeros_Male)
+
+numeros_Female<-(tabla_Female[, -1])
+numeros_Female <- unlist(numeros_Female)
+numeros_Female<-as.numeric(numeros_Female)
+
+
+
+
+# Crear un vector para almacenar los valores de p
+p_gender <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_Male)) {
+  concentracion_Female <- as.numeric(tabla_Female[n, -1])
+  concentracion_Male <- as.numeric(tabla_Male[n, -1])
+  resultado_gender<- wilcox.test(concentracion_Male, concentracion_Female, exact = FALSE)
+  p_gender <- c(p_gender, resultado_gender$p.value)
+}
+
+resultado_final_gender <- data.frame(tabla_sologenero[, 1], p_value = p_gender)
+
+averages_Female <- data.frame(average = numeric(nrow(tabla_Female)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_Female)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_Female[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_Female
+  averages_Female[i, "average"] <- average_fila
+}
+averages_porcentaje_Female<-averages_Female
+averages_Female<-cbind(tabla_sologenero[,1],averages_porcentaje_Female)
+
+
+##############################################################################
+averages_Male <- data.frame(average = numeric(nrow(tabla_Male)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_Male)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_Male[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_Male
+  averages_Male[i, "average"] <- average_fila
+}
+averages_porcentaje_Male<-averages_Male
+averages_Male<-cbind(tabla_sologenero[,1],averages_porcentaje_Male)
+
+
+#######################################################################
+efecto_gender<-cbind(averages_Female,averages_Male[,-1], resultado_final_gender[,-1] )
+colnames(efecto_gender) <- c("Genus", "Average female", "Average male", "p-valor test")
+
+filas_significativas_gender <- efecto_gender[efecto_gender$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_gender) == 0) {
+  filas_significativas_gender <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+
+
+##############################################################################
+##############################################################################
+
+########################################################################
+#########################Edad########################################
+#########################################################################
+
+
+#age
+muestras_12 <- sample_metadata %>%
+  filter(age == "12") %>%
+  pull("sample-id")
+
+tabla_12 <- tabla_sologenero %>%
+  select(1, all_of(muestras_12))
+
+#8
+
+muestras_8 <- sample_metadata %>%
+  filter(age == "8") %>%
+  pull("sample-id")
+
+tabla_8 <- tabla_sologenero %>%
+  select(1, all_of(muestras_8))
+
+numeros_12<-(tabla_12[, -1])
+numeros_12 <- unlist(numeros_12)
+numeros_12<-as.numeric(numeros_12)
+
+numeros_8<-(tabla_8[, -1])
+numeros_8 <- unlist(numeros_8)
+numeros_8<-as.numeric(numeros_8)
+
+
+
+# Crear un vector para almacenar los valores de p
+p_age <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12)) {
+  concentracion_8 <- as.numeric(tabla_8[n, -1])
+  concentracion_12 <- as.numeric(tabla_12[n, -1])
+  resultado_age<- wilcox.test(concentracion_12, concentracion_8, exact = FALSE)
+  p_age <- c(p_age, resultado_age$p.value)
+}
+
+resultado_final_age <- data.frame(tabla_sologenero[, 1], p_value = p_age)
+
+averages_8 <- data.frame(average = numeric(nrow(tabla_8)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_8)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_8[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_8
+  averages_8[i, "average"] <- average_fila
+}
+averages_porcentaje_8<-averages_8
+averages_8<-cbind(tabla_sologenero[,1],averages_porcentaje_8)
+
+
+##############################################################################
+averages_12 <- data.frame(average = numeric(nrow(tabla_12)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_12)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_12[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_12
+  averages_12[i, "average"] <- average_fila
+}
+averages_porcentaje_12<-averages_12
+averages_12<-cbind(tabla_sologenero[,1],averages_porcentaje_12)
+
+
+#######################################################################
+efecto_age<-cbind(averages_8,averages_12[,-1], resultado_final_age[,-1] )
+colnames(efecto_age) <- c("Genus", "average 8 months", "average 12 months", "p-valor test")
+
+filas_significativas_age <- efecto_age[efecto_age$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_age) == 0) {
+  filas_significativas_age <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+
+###################################################################
+#########################GENOTIPO##################################
+#GENOTIPO
+muestras_WT <- sample_metadata %>%
+  filter(genotype == "WT") %>%
+  pull("sample-id")
+
+tabla_WT <- tabla_sologenero %>%
+  select(1, all_of(muestras_WT))
+
+#HTZ
+
+muestras_HTZ <- sample_metadata %>%
+  filter(genotype == "HTZ") %>%
+  pull("sample-id")
+
+tabla_HTZ <- tabla_sologenero %>%
+  select(1, all_of(muestras_HTZ))
+
+
+muestras_HZ <- sample_metadata %>%
+  filter(genotype == "HZ") %>%
+  pull("sample-id")
+
+tabla_HZ <- tabla_sologenero %>%
+  select(1, all_of(muestras_HZ))
+
+
+
+#test estadístico krustall wallis para el GENOTIPO
+
+
+# Identificar filas completas con NA en el dataframe tabla_WT
+filas_completas_na <- complete.cases(tabla_WT)
+
+# Filtrar el dataframe tabla_WT excluyendo las filas con NA
+tabla_WT_filtrado <- tabla_WT[filas_completas_na, ]
+
+# Hacer lo mismo para el dataframe hzt
+tabla_HTZ_filtrado <- tabla_HTZ[filas_completas_na, ]
+
+# Hacer lo mismo para el dataframe hzt
+tabla_HZ_filtrado <- tabla_HZ[filas_completas_na, ]
+
+
+
+p_genotype <- c()  # Vector para almacenar los p-valores
+
+for (n in 1:nrow(tabla_WT_filtrado)) {
+  concentracion_WT <- as.numeric(tabla_WT_filtrado[n, -1])
+  concentracion_HTZ <- as.numeric(tabla_HTZ_filtrado[n, -1])
+  concentracion_HZ <- as.numeric(tabla_HZ_filtrado[n, -1])
+  
+  x <- c(concentracion_HZ, concentracion_HTZ, concentracion_WT)
+  g <- factor(rep(1:3, c(20, 22, 35)),
+              labels = c("concentracion_HZ",
+                         "concentracion_HTZ",
+                         "concentracion_WT"))
+  
+  resultado_genotype <- kruskal.test(x,g)
+  
+  p_genotype <- c(p_genotype, resultado_genotype$p.value)
+}
+
+averages_HTZ <- data.frame(average = numeric(nrow(tabla_HTZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_HTZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_HTZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_HTZ
+  averages_HTZ[i, "average"] <- average_fila
+}
+averages_porcentaje_HTZ<-averages_HTZ
+averages_HTZ<-cbind(tabla_sologenero[,1],averages_porcentaje_HTZ)
+
+
+##############################################################################
+averages_WT <- data.frame(average = numeric(nrow(tabla_WT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_WT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_WT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_WT
+  averages_WT[i, "average"] <- average_fila
+}
+averages_porcentaje_WT<-averages_WT
+averages_WT<-cbind(tabla_sologenero[,1],averages_porcentaje_WT)
+
+##############################################################################
+averages_HZ <- data.frame(average = numeric(nrow(tabla_HZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_HZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_HZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average de la fila actual
+  average_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average en el dataframe de averages_HZ
+  averages_HZ[i, "average"] <- average_fila
+}
+averages_porcentaje_HZ<-averages_HZ
+averages_HZ<-cbind(tabla_sologenero[,1],averages_porcentaje_HZ)
+
+resultado_final_genotype <- data.frame(tabla_sologenero[, 1], p_value = p_genotype)
+
+
+efecto_genotype<-cbind(averages_HZ,averages_WT[,-1], averages_HTZ[,-1], resultado_final_genotype[,-1])
+colnames(efecto_genotype) <- c("Genus", "average genotype HZ", "average genotype WT", "average genotype HTZ","p-valor test")
+
+filas_significativas_genotype <- efecto_genotype[efecto_genotype$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_genotype) == 0) {
+  filas_significativas_genotype <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+
+
+write.xlsx(filas_significativas_gender, "alzheimer/Significativo_gender.xlsx", sheetName = "Genus", row.names = FALSE, append = TRUE)
+write.xlsx(filas_significativas_genotype, "alzheimer/Significativo_genotype.xlsx", sheetName = "Genus", row.names = FALSE, append = TRUE)
+write.xlsx(filas_significativas_age, "alzheimer/Significativo_age.xlsx", sheetName = "Genus", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_age, "alzheimer/efecto_age.xlsx", sheetName = "Genus", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_genotype, "alzheimer/efecto_genotype.xlsx", sheetName = "Genus", row.names = FALSE, append = TRUE)
+write.xlsx(efecto_gender, "alzheimer/efecto_gender.xlsx", sheetName = "Genus", row.names = FALSE, append = TRUE)
+write.xlsx(tabla_sologenero, "alzheimer/abundancias.xlsx", sheetName = "Genus", row.names = FALSE, append = TRUE)
+
+muestras_8_HZ <- sample_metadata %>%
+  filter(age == "8", genotype == "HZ") %>%
+  pull("sample-id")
+
+tabla_8_HZ <- tabla_sologenero %>%
+  select(1, all_of(muestras_8_HZ))
+
+muestras_8_HTZ <- sample_metadata %>%
+  filter(age == "8", genotype == "HTZ") %>%
+  pull("sample-id")
+
+tabla_8_HTZ <- tabla_sologenero %>%
+  select(1, all_of(muestras_8_HTZ))
+
+
+muestras_8_WT <- sample_metadata %>%
+  filter(age == "8", genotype == "WT") %>%
+  pull("sample-id")
+
+tabla_8_WT <- tabla_sologenero %>%
+  select(1, all_of(muestras_8_WT))
+
+###################################################################
+
+muestras_12_HZ <- sample_metadata %>%
+  filter(age == "12", genotype == "HZ") %>%
+  pull("sample-id")
+
+tabla_12_HZ <- tabla_sologenero %>%
+  select(1, all_of(muestras_12_HZ))
+
+muestras_12_HTZ <- sample_metadata %>%
+  filter(age == "12", genotype == "HTZ") %>%
+  pull("sample-id")
+
+tabla_12_HTZ <- tabla_sologenero %>%
+  select(1, all_of(muestras_12_HTZ))
+
+
+muestras_12_WT <- sample_metadata %>%
+  filter(age == "12", genotype == "WT") %>%
+  pull("sample-id")
+
+tabla_12_WT <- tabla_sologenero %>%
+  select(1, all_of(muestras_12_WT))
+
+
+###################################################################3
+
+
+
+
+# Crear un vector para almacenar los valores de p
+p_age_genotipo <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12_WT)) {
+  concentracion_8_WT <- as.numeric(tabla_8_WT[n, -1])
+  concentracion_12_WT <- as.numeric(tabla_12_WT[n, -1])
+  resultado_age_genotipo<- wilcox.test(concentracion_12_WT, concentracion_8_WT, exact = FALSE)
+  p_age_genotipo <- c(p_age_genotipo, resultado_age_genotipo$p.value)
+}
+
+resultado_final_age_genotipo_WT <- data.frame(tabla_sologenero[, 1], p_value = p_age_genotipo)
+
+average_genotipos_8_WT <- data.frame(average_genotipo = numeric(nrow(tabla_8_WT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_8_WT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_8_WT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_8_WT
+  average_genotipos_8_WT[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_8_WT<-average_genotipos_8_WT
+average_genotipos_8_WT<-cbind(tabla_sologenero[,1],average_genotipos_porcentaje_8_WT)
+
+
+##############################################################################
+average_genotipos_12_WT <- data.frame(average_genotipo = numeric(nrow(tabla_12_WT)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_12_WT)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_12_WT[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_12_WT
+  average_genotipos_12_WT[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_12_WT<-average_genotipos_12_WT
+average_genotipos_12_WT<-cbind(tabla_sologenero[,1],average_genotipos_porcentaje_12_WT)
+
+
+#######################################################################
+efecto_age_genotipo_WT<-cbind(average_genotipos_8_WT,average_genotipos_12_WT[,-1], resultado_final_age_genotipo_WT[,-1] )
+efecto_age_genotipo_WT <- data.frame(lapply(efecto_age_genotipo_WT, function(x) ifelse(is.nan(x), 1, x)))
+
+colnames(efecto_age_genotipo_WT) <- c("Genus", "Average WT 8 months", "SD WT 8 months", "Average WT 12 months", "SD WT 12 months", "p-valor test")
+
+filas_significativas_age_genotipo_WT <- efecto_age_genotipo_WT[efecto_age_genotipo_WT$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_age_genotipo_WT) == 0) {
+  filas_significativas_age_genotipo_WT <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+write.xlsx(filas_significativas_age_genotipo_WT, "alzheimer/Significativo_genotipo_edad.xlsx", sheetName = "Genus Wildtype", row.names = FALSE, append = TRUE)
+
+
+
+# Crear un vector para almacenar los valores de p
+p_age_genotipo <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12_HZ)) {
+  concentracion_8_HZ <- as.numeric(tabla_8_HZ[n, -1])
+  concentracion_12_HZ <- as.numeric(tabla_12_HZ[n, -1])
+  resultado_age_genotipo<- wilcox.test(concentracion_12_HZ, concentracion_8_HZ, exact = FALSE)
+  p_age_genotipo <- c(p_age_genotipo, resultado_age_genotipo$p.value)
+}
+
+resultado_final_age_genotipo_HZ <- data.frame(tabla_sologenero[, 1], p_value = p_age_genotipo)
+
+average_genotipos_8_HZ <- data.frame(average_genotipo = numeric(nrow(tabla_8_HZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_8_HZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_8_HZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_8_HZ
+  average_genotipos_8_HZ[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_8_HZ<-average_genotipos_8_HZ
+average_genotipos_8_HZ<-cbind(tabla_sologenero[,1],average_genotipos_porcentaje_8_HZ)
+
+
+##############################################################################
+average_genotipos_12_HZ <- data.frame(average_genotipo = numeric(nrow(tabla_12_HZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_12_HZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_12_HZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_12_HZ
+  average_genotipos_12_HZ[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_12_HZ<-average_genotipos_12_HZ
+average_genotipos_12_HZ<-cbind(tabla_sologenero[,1],average_genotipos_porcentaje_12_HZ)
+
+
+#######################################################################
+efecto_age_genotipo_HZ<-cbind(average_genotipos_8_HZ,average_genotipos_12_HZ[,-1], resultado_final_age_genotipo_HZ[,-1] )
+efecto_age_genotipo_HZ <- data.frame(lapply(efecto_age_genotipo_HZ, function(x) ifelse(is.nan(x), 1, x)))
+
+colnames(efecto_age_genotipo_HZ) <- c("Genus", "Average HZ 8 months", "Average HZ 12 months", "p-valor test")
+
+filas_significativas_age_genotipo_HZ <- efecto_age_genotipo_HZ[efecto_age_genotipo_HZ$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_age_genotipo_HZ) == 0) {
+  filas_significativas_age_genotipo_HZ <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+write.xlsx(filas_significativas_age_genotipo_HZ, "alzheimer/Significativo_genotipo_edad.xlsx", sheetName = "Genus Homozygous", row.names = FALSE, append = TRUE)
+
+
+
+# Crear un vector para almacenar los valores de p
+p_age_genotipo <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12_HTZ)) {
+  concentracion_8_HTZ <- as.numeric(tabla_8_HTZ[n, -1])
+  concentracion_12_HTZ <- as.numeric(tabla_12_HTZ[n, -1])
+  resultado_age_genotipo<- wilcox.test(concentracion_12_HTZ, concentracion_8_HTZ, exact = FALSE)
+  p_age_genotipo <- c(p_age_genotipo, resultado_age_genotipo$p.value)
+}
+
+resultado_final_age_genotipo_HTZ <- data.frame(tabla_sologenero[, 1], p_value = p_age_genotipo)
+
+average_genotipos_8_HTZ <- data.frame(average_genotipo = numeric(nrow(tabla_8_HTZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_8_HTZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_8_HTZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_8_HTZ
+  average_genotipos_8_HTZ[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_8_HTZ<-average_genotipos_8_HTZ
+average_genotipos_8_HTZ<-cbind(tabla_sologenero[,1],average_genotipos_porcentaje_8_HTZ)
+
+
+##############################################################################
+average_genotipos_12_HTZ <- data.frame(average_genotipo = numeric(nrow(tabla_12_HTZ)))
+
+# Recorrer todas las filas de la tabla
+for (i in 1:nrow(tabla_12_HTZ)) {
+  # Obtener la fila actual omitiendo la primera columna
+  fila <- tabla_12_HTZ[i, -1]
+  
+  # Limpiar los valores de caracteres no numéricos
+  fila_limpia <- gsub("[^0-9.]+", "", fila)
+  
+  # Convertir los valores a numéricos
+  fila_numeric <- as.numeric(fila_limpia)
+  
+  # Calcular la average_genotipo de la fila actual
+  average_genotipo_fila <- mean(fila_numeric, na.rm = TRUE)
+  
+  # Almacenar la average_genotipo en el dataframe de average_genotipos_12_HTZ
+  average_genotipos_12_HTZ[i, "average_genotipo"] <- average_genotipo_fila
+}
+average_genotipos_porcentaje_12_HTZ<-average_genotipos_12_HTZ
+average_genotipos_12_HTZ<-cbind(tabla_sologenero[,1],average_genotipos_porcentaje_12_HTZ)
+
+
+#######################################################################
+efecto_age_genotipo_HTZ<-cbind(average_genotipos_8_HTZ,average_genotipos_12_HTZ[,-1], resultado_final_age_genotipo_HTZ[,-1] )
+efecto_age_genotipo_HTZ <- data.frame(lapply(efecto_age_genotipo_HTZ, function(x) ifelse(is.nan(x), 1, x)))
+colnames(efecto_age_genotipo_HTZ) <- c("Genus", "Average HTZ 8 months", "Average HTZ 12 months", "p-valor test")
+
+
+
+filas_significativas_age_genotipo_HTZ <- efecto_age_genotipo_HTZ[efecto_age_genotipo_HTZ$`p-valor test` < 0.05, ]
+if (nrow(filas_significativas_age_genotipo_HTZ) == 0) {
+  filas_significativas_age_genotipo_HTZ <- data.frame(OTU = "There is no Operational Taxonomic Unit (OTU) that exhibits statistically significant differences.")
+}
+
+#write.xlsx(filas_significativas_age_genotipo_HTZ, "alzheimer/Significativo_genotipo_edad.xlsx", sheetName = "Genus Heterozygous", row.names = FALSE, append = TRUE)
+
+# Crear un vector para almacenar los valores de p
+p_WT_vs_HZ_8 <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_8_WT)) {
+  concentracion_8_HZ <- as.numeric(tabla_8_HZ[n, -1])
+  concentracion_8_WT <- as.numeric(tabla_8_WT[n, -1])
+  resultado_WT_vs_HZ_8<- wilcox.test(concentracion_8_WT, concentracion_8_HZ, exact = FALSE)
+  p_WT_vs_HZ_8 <- c(p_WT_vs_HZ_8, resultado_WT_vs_HZ_8$p.value)
+}
+
+resultado_final_WT_vs_HZ_8 <- data.frame(tabla_solofamilia[, 1], p_value = p_WT_vs_HZ_8)
+resultado_final_WT_vs_HZ_8 <- data.frame(lapply(resultado_final_WT_vs_HZ_8, function(x) ifelse(is.nan(x), 1, x)))
+
+averages_8_HZ <- data.frame(average = numeric(nrow(tabla_8_HZ)))
+# Filtrar el DataFrame por la primera columna
+nombres_filas <- c("Marinifilaceae", "Lachnospiraceae", "Saccharimonadaceae", "Butyricicoccaceae", "Eggerthellaceae", "RF39")
+resultado_final_WT_vs_HZ_8_reducido <- resultado_final_WT_vs_HZ_8[resultado_final_WT_vs_HZ_8[, 1] %in% nombres_filas, ]
+
+write.xlsx(resultado_final_WT_vs_HZ_8_reducido, "alzheimer/edades/estadística.xlsx", sheetName = "WT_vs_HZ_8_8M", row.names = FALSE, append = TRUE)
+
+
+# Crear un vector para almacenar los valores de p
+p_WT_vs_HTZ_8 <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_8_WT)) {
+  concentracion_8_HTZ <- as.numeric(tabla_8_HTZ[n, -1])
+  concentracion_8_WT <- as.numeric(tabla_8_WT[n, -1])
+  resultado_WT_vs_HTZ_8<- wilcox.test(concentracion_8_WT, concentracion_8_HTZ, exact = FALSE)
+  p_WT_vs_HTZ_8 <- c(p_WT_vs_HTZ_8, resultado_WT_vs_HTZ_8$p.value)
+}
+
+resultado_final_WT_vs_HTZ_8 <- data.frame(tabla_solofamilia[, 1], p_value = p_WT_vs_HTZ_8)
+resultado_final_WT_vs_HTZ_8 <- data.frame(lapply(resultado_final_WT_vs_HTZ_8, function(x) ifelse(is.nan(x), 1, x)))
+
+averages_8_HTZ <- data.frame(average = numeric(nrow(tabla_8_HTZ)))
+# Filtrar el DataFrame por la primera columna
+nombres_filas <- c("Marinifilaceae", "Lachnospiraceae", "Saccharimonadaceae", "Butyricicoccaceae", "Eggerthellaceae", "RF39")
+resultado_final_WT_vs_HTZ_8_reducido <- resultado_final_WT_vs_HTZ_8[resultado_final_WT_vs_HTZ_8[, 1] %in% nombres_filas, ]
+
+write.xlsx(resultado_final_WT_vs_HTZ_8_reducido, "alzheimer/edades/estadística.xlsx", sheetName = "WT_vs_HTZ_8_8M", row.names = FALSE, append = TRUE)
+
+
+# Crear un vector para almacenar los valores de p
+p_WT_vs_HZ_12 <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12_WT)) {
+  concentracion_12_HZ <- as.numeric(tabla_12_HZ[n, -1])
+  concentracion_12_WT <- as.numeric(tabla_12_WT[n, -1])
+  resultado_WT_vs_HZ_12<- wilcox.test(concentracion_12_WT, concentracion_12_HZ, exact = FALSE)
+  p_WT_vs_HZ_12 <- c(p_WT_vs_HZ_12, resultado_WT_vs_HZ_12$p.value)
+}
+
+resultado_final_WT_vs_HZ_12 <- data.frame(tabla_solofamilia[, 1], p_value = p_WT_vs_HZ_12)
+resultado_final_WT_vs_HZ_12 <- data.frame(lapply(resultado_final_WT_vs_HZ_12, function(x) ifelse(is.nan(x), 1, x)))
+
+averages_12_HZ <- data.frame(average = numeric(nrow(tabla_12_HZ)))
+# Filtrar el DataFrame por la primera columna
+nombres_filas <- c("Marinifilaceae", "Lachnospiraceae", "Saccharimonadaceae", "Butyricicoccaceae", "Eggerthellaceae", "RF39")
+resultado_final_WT_vs_HZ_12_reducido <- resultado_final_WT_vs_HZ_12[resultado_final_WT_vs_HZ_12[, 1] %in% nombres_filas, ]
+
+write.xlsx(resultado_final_WT_vs_HZ_12_reducido, "alzheimer/edades/estadística.xlsx", sheetName = "WT_vs_HZ_12_12M", row.names = FALSE, append = TRUE)
+
+
+# Crear un vector para almacenar los valores de p
+p_WT_vs_HTZ_12 <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12_WT)) {
+  concentracion_12_HTZ <- as.numeric(tabla_12_HTZ[n, -1])
+  concentracion_12_WT <- as.numeric(tabla_12_WT[n, -1])
+  resultado_WT_vs_HTZ_12<- wilcox.test(concentracion_12_WT, concentracion_12_HTZ, exact = FALSE)
+  p_WT_vs_HTZ_12 <- c(p_WT_vs_HTZ_12, resultado_WT_vs_HTZ_12$p.value)
+}
+
+resultado_final_WT_vs_HTZ_12 <- data.frame(tabla_solofamilia[, 1], p_value = p_WT_vs_HTZ_12)
+resultado_final_WT_vs_HTZ_12 <- data.frame(lapply(resultado_final_WT_vs_HTZ_12, function(x) ifelse(is.nan(x), 1, x)))
+
+averages_12_HTZ <- data.frame(average = numeric(nrow(tabla_12_HTZ)))
+# Filtrar el DataFrame por la primera columna
+nombres_filas <- c("Marinifilaceae", "Lachnospiraceae", "Saccharimonadaceae", "Butyricicoccaceae", "Eggerthellaceae", "RF39")
+resultado_final_WT_vs_HTZ_12_reducido <- resultado_final_WT_vs_HTZ_12[resultado_final_WT_vs_HTZ_12[, 1] %in% nombres_filas, ]
+
+write.xlsx(resultado_final_WT_vs_HTZ_12_reducido, "alzheimer/edades/estadística.xlsx", sheetName = "WT_vs_HTZ_12_12M", row.names = FALSE, append = TRUE)
+
+# Crear un vector para almacenar los valores de p
+p_HTZ_vs_HZ_12 <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12_HTZ)) {
+  concentracion_12_HZ <- as.numeric(tabla_12_HZ[n, -1])
+  concentracion_12_HTZ <- as.numeric(tabla_12_HTZ[n, -1])
+  resultado_HTZ_vs_HZ_12<- wilcox.test(concentracion_12_HTZ, concentracion_12_HZ, exact = FALSE)
+  p_HTZ_vs_HZ_12 <- c(p_HTZ_vs_HZ_12, resultado_HTZ_vs_HZ_12$p.value)
+}
+
+resultado_final_HTZ_vs_HZ_12 <- data.frame(tabla_solofamilia[, 1], p_value = p_HTZ_vs_HZ_12)
+resultado_final_HTZ_vs_HZ_12 <- data.frame(lapply(resultado_final_HTZ_vs_HZ_12, function(x) ifelse(is.nan(x), 1, x)))
+
+averages_12_HZ <- data.frame(average = numeric(nrow(tabla_12_HZ)))
+# Filtrar el DataFrame por la primera columna
+nombres_filas <- c("Marinifilaceae", "Lachnospiraceae", "Saccharimonadaceae", "Butyricicoccaceae", "Eggerthellaceae", "RF39")
+resultado_final_HTZ_vs_HZ_12_reducido <- resultado_final_HTZ_vs_HZ_12[resultado_final_HTZ_vs_HZ_12[, 1] %in% nombres_filas, ]
+
+write.xlsx(resultado_final_HTZ_vs_HZ_12_reducido, "alzheimer/edades/estadística.xlsx", sheetName = "HTZ_vs_HZ_12_12M", row.names = FALSE, append = TRUE)
+
+
+
+# Crear un vector para almacenar los valores de p
+p_WT_vs_HZ_8 <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_8_WT)) {
+  concentracion_8_HZ <- as.numeric(tabla_8_HZ[n, -1])
+  concentracion_8_WT <- as.numeric(tabla_8_WT[n, -1])
+  resultado_WT_vs_HZ_8<- wilcox.test(concentracion_8_WT, concentracion_8_HZ, exact = FALSE)
+  p_WT_vs_HZ_8 <- c(p_WT_vs_HZ_8, resultado_WT_vs_HZ_8$p.value)
+}
+
+resultado_final_WT_vs_HZ_8 <- data.frame(tabla_solofamilia[, 1], p_value = p_WT_vs_HZ_8)
+resultado_final_WT_vs_HZ_8 <- data.frame(lapply(resultado_final_WT_vs_HZ_8, function(x) ifelse(is.nan(x), 1, x)))
+
+averages_8_HZ <- data.frame(average = numeric(nrow(tabla_8_HZ)))
+# Filtrar el DataFrame por la primera columna
+nombres_filas <- c("Marinifilaceae", "Lachnospiraceae", "Saccharimonadaceae", "Butyricicoccaceae", "Eggerthellaceae", "RF39")
+resultado_final_WT_vs_HZ_8 <- resultado_final_WT_vs_HZ_8[resultado_final_WT_vs_HZ_8[, 1] %in% nombres_filas, ]
+
+write.xlsx(resultado_final_WT_vs_HZ_8, "alzheimer/estadística_todo.xlsx", sheetName = "WT_vs_HZ_8_8M", row.names = FALSE, append = TRUE)
+
+
+# Crear un vector para almacenar los valores de p
+p_WT_vs_HTZ_8 <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_8_WT)) {
+  concentracion_8_HTZ <- as.numeric(tabla_8_HTZ[n, -1])
+  concentracion_8_WT <- as.numeric(tabla_8_WT[n, -1])
+  resultado_WT_vs_HTZ_8<- wilcox.test(concentracion_8_WT, concentracion_8_HTZ, exact = FALSE)
+  p_WT_vs_HTZ_8 <- c(p_WT_vs_HTZ_8, resultado_WT_vs_HTZ_8$p.value)
+}
+
+resultado_final_WT_vs_HTZ_8 <- data.frame(tabla_solofamilia[, 1], p_value = p_WT_vs_HTZ_8)
+resultado_final_WT_vs_HTZ_8 <- data.frame(lapply(resultado_final_WT_vs_HTZ_8, function(x) ifelse(is.nan(x), 1, x)))
+
+averages_8_HTZ <- data.frame(average = numeric(nrow(tabla_8_HTZ)))
+# Filtrar el DataFrame por la primera columna
+nombres_filas <- c("Marinifilaceae", "Lachnospiraceae", "Saccharimonadaceae", "Butyricicoccaceae", "Eggerthellaceae", "RF39")
+resultado_final_WT_vs_HTZ_8 <- resultado_final_WT_vs_HTZ_8[resultado_final_WT_vs_HTZ_8[, 1] %in% nombres_filas, ]
+
+write.xlsx(resultado_final_WT_vs_HTZ_8, "alzheimer/estadística_todo.xlsx", sheetName = "WT_vs_HTZ_8_8M", row.names = FALSE, append = TRUE)
+
+
+# Crear un vector para almacenar los valores de p
+p_WT_vs_HZ_12 <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12_WT)) {
+  concentracion_12_HZ <- as.numeric(tabla_12_HZ[n, -1])
+  concentracion_12_WT <- as.numeric(tabla_12_WT[n, -1])
+  resultado_WT_vs_HZ_12<- wilcox.test(concentracion_12_WT, concentracion_12_HZ, exact = FALSE)
+  p_WT_vs_HZ_12 <- c(p_WT_vs_HZ_12, resultado_WT_vs_HZ_12$p.value)
+}
+
+resultado_final_WT_vs_HZ_12 <- data.frame(tabla_solofamilia[, 1], p_value = p_WT_vs_HZ_12)
+resultado_final_WT_vs_HZ_12 <- data.frame(lapply(resultado_final_WT_vs_HZ_12, function(x) ifelse(is.nan(x), 1, x)))
+
+averages_12_HZ <- data.frame(average = numeric(nrow(tabla_12_HZ)))
+# Filtrar el DataFrame por la primera columna
+nombres_filas <- c("Marinifilaceae", "Lachnospiraceae", "Saccharimonadaceae", "Butyricicoccaceae", "Eggerthellaceae", "RF39")
+resultado_final_WT_vs_HZ_12 <- resultado_final_WT_vs_HZ_12[resultado_final_WT_vs_HZ_12[, 1] %in% nombres_filas, ]
+
+write.xlsx(resultado_final_WT_vs_HZ_12, "alzheimer/estadística_todo.xlsx", sheetName = "WT_vs_HZ_12_12M", row.names = FALSE, append = TRUE)
+
+
+# Crear un vector para almacenar los valores de p
+p_WT_vs_HTZ_12 <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12_WT)) {
+  concentracion_12_HTZ <- as.numeric(tabla_12_HTZ[n, -1])
+  concentracion_12_WT <- as.numeric(tabla_12_WT[n, -1])
+  resultado_WT_vs_HTZ_12<- wilcox.test(concentracion_12_WT, concentracion_12_HTZ, exact = FALSE)
+  p_WT_vs_HTZ_12 <- c(p_WT_vs_HTZ_12, resultado_WT_vs_HTZ_12$p.value)
+}
+
+resultado_final_WT_vs_HTZ_12 <- data.frame(tabla_solofamilia[, 1], p_value = p_WT_vs_HTZ_12)
+resultado_final_WT_vs_HTZ_12 <- data.frame(lapply(resultado_final_WT_vs_HTZ_12, function(x) ifelse(is.nan(x), 1, x)))
+
+averages_12_HTZ <- data.frame(average = numeric(nrow(tabla_12_HTZ)))
+# Filtrar el DataFrame por la primera columna
+nombres_filas <- c("Marinifilaceae", "Lachnospiraceae", "Saccharimonadaceae", "Butyricicoccaceae", "Eggerthellaceae", "RF39")
+resultado_final_WT_vs_HTZ_12 <- resultado_final_WT_vs_HTZ_12[resultado_final_WT_vs_HTZ_12[, 1] %in% nombres_filas, ]
+
+write.xlsx(resultado_final_WT_vs_HTZ_12, "alzheimer/estadística_todo.xlsx", sheetName = "WT_vs_HTZ_12_12M", row.names = FALSE, append = TRUE)
+
+# Crear un vector para almacenar los valores de p
+p_HTZ_vs_HZ_12 <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_12_HTZ)) {
+  concentracion_12_HZ <- as.numeric(tabla_12_HZ[n, -1])
+  concentracion_12_HTZ <- as.numeric(tabla_12_HTZ[n, -1])
+  resultado_HTZ_vs_HZ_12<- wilcox.test(concentracion_12_HTZ, concentracion_12_HZ, exact = FALSE)
+  p_HTZ_vs_HZ_12 <- c(p_HTZ_vs_HZ_12, resultado_HTZ_vs_HZ_12$p.value)
+}
+
+resultado_final_HTZ_vs_HZ_12 <- data.frame(tabla_solofamilia[, 1], p_value = p_HTZ_vs_HZ_12)
+resultado_final_HTZ_vs_HZ_12 <- data.frame(lapply(resultado_final_HTZ_vs_HZ_12, function(x) ifelse(is.nan(x), 1, x)))
+
+averages_12_HZ <- data.frame(average = numeric(nrow(tabla_12_HZ)))
+# Filtrar el DataFrame por la primera columna
+nombres_filas <- c("Marinifilaceae", "Lachnospiraceae", "Saccharimonadaceae", "Butyricicoccaceae", "Eggerthellaceae", "RF39")
+resultado_final_HTZ_vs_HZ_12 <- resultado_final_HTZ_vs_HZ_12[resultado_final_HTZ_vs_HZ_12[, 1] %in% nombres_filas, ]
+
+write.xlsx(resultado_final_HTZ_vs_HZ_12, "alzheimer/estadística_todo.xlsx", sheetName = "HTZ_vs_HZ_12_12M", row.names = FALSE, append = TRUE)
+
+
+# Crear un vector para almacenar los valores de p
+p_HTZ_vs_HZ_8 <- c()
+
+# Realizar el test de Wilcoxon para los conjuntos de datos filtrados
+for (n in 1:nrow(tabla_8_HTZ)) {
+  concentracion_8_HZ <- as.numeric(tabla_8_HZ[n, -1])
+  concentracion_8_HTZ <- as.numeric(tabla_8_HTZ[n, -1])
+  resultado_HTZ_vs_HZ_8<- wilcox.test(concentracion_8_HTZ, concentracion_8_HZ, exact = FALSE)
+  p_HTZ_vs_HZ_8 <- c(p_HTZ_vs_HZ_8, resultado_HTZ_vs_HZ_8$p.value)
+}
+
+resultado_final_HTZ_vs_HZ_8 <- data.frame(tabla_solofamilia[, 1], p_value = p_HTZ_vs_HZ_8)
+resultado_final_HTZ_vs_HZ_8 <- data.frame(lapply(resultado_final_HTZ_vs_HZ_8, function(x) ifelse(is.nan(x), 1, x)))
+
+averages_8_HZ <- data.frame(average = numeric(nrow(tabla_8_HZ)))
+# Filtrar el DataFrame por la primera columna
+nombres_filas <- c("Marinifilaceae", "Lachnospiraceae", "Saccharimonadaceae", "Butyricicoccaceae", "Eggerthellaceae", "RF39")
+
+
+write.xlsx(resultado_final_HTZ_vs_HZ_8, "alzheimer/estadística_todo.xlsx", sheetName = "HTZ_vs_HZ_8_8M", row.names = FALSE, append = TRUE)
+
